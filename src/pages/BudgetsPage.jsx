@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Target, Plus, Pencil, Trash2 } from 'lucide-react';
 import { fmt } from '../helpers';
-import { incomeByTag } from '../lib/derive';
 import TransactionsTable from '../components/TransactionsTable';
 import PeriodSelect from '../components/PeriodSelect';
 import Modal from '../components/Modal';
@@ -44,13 +43,12 @@ function BudgetModal({ tags, budgets, initial, onClose, onSave, currency }) {
 }
 
 function BudgetsPage({ appData, actions, period, onPeriod }) {
-  const { budgets, tags, baseCurrency, rangedTransactions, summaryData } = appData;
+  const { budgets, tags, baseCurrency, rangedTransactions, summaryData, incomeData: incomeRows } = appData;
   const [tab, setTab] = useState('expense');
   const [modal, setModal] = useState(null); // null | {} | budget
   const totalSpent = budgets.reduce((s,b)=>s+b.spent,0);
   const totalLimit = budgets.reduce((s,b)=>s+b.limit,0);
   const totalAvail = totalLimit - totalSpent;
-  const incomeRows = incomeByTag(rangedTransactions, tags);
   const tracked = new Set(budgets.map(b => b.tag));
   const txns = rangedTransactions.filter(t => (t.tags ?? []).some(n => tracked.has(n)));
 

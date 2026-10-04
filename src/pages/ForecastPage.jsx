@@ -1,7 +1,7 @@
 import React from 'react';
 import { TrendingUp } from 'lucide-react';
 import { fmt, monthShort } from '../helpers';
-import { monthlySeries } from '../lib/derive';
+import { monthlySeries, convertFX } from '../lib/derive';
 import { monthlyEquivalent } from '../lib/repeats';
 
 /** Average of the last `n` COMPLETED months that have any activity. */
@@ -11,12 +11,16 @@ const avgCompleted = (series, key, n = 3) => {
 };
 
 function ForecastPage({ appData }) {
-  const { repeats, accounts, baseCurrency, baseTransactions, netWorthByCurrency } = appData;
+  const { repeats, accounts, baseCurrency, baseTransactions, netWorthByCurrency, netWorthConverted, fxRates, foreignExcluded } = appData;
   const now = new Date();
 
-  const inBase = repeats.filter(r => (accounts.find(a => a.name === r.account)?.currency ?? baseCurrency) === baseCurrency);
-  const recurringExp = inBase.filter(r => r.amount < 0).reduce((s, r) => s - monthlyEquivalent(r), 0);
-  const recurringInc = inBase.filter(r => r.amount > 0).reduce((s, r) => s + monthlyEquivalent(r), 0);
+  // Recurring items in every currency, expressed in the display currency.
+  const curOf = r => accounts.find(a => a.name === r.account)?.currency ?? baseCurrency;
+  const converted = repeats
+    .map(r => ({ ...r, amountBase: curOf(r) === baseCurrency ? r.amount : (foreignExcluded ? null : convertFX(r.amount, curOf(r), baseCurrency, fxRates)) }))
+    .filter(r => r.amountBase != null);
+  const recurringExp = converted.filter(r => r.amountBase < 0).reduce((s, r) => s - monthlyEquivalent({ ...r, amount: r.amountBase }), 0);
+  const recurringInc = converted.filter(r => r.amountBase > 0).reduce((s, r) => s + monthlyEquivalent({ ...r, amount: r.amountBase }), 0);
 
   const series = monthlySeries(baseTransactions, 6, now);
   const histIncome = avgCompleted(series, 'income');
@@ -29,7 +33,7 @@ function ForecastPage({ appData }) {
   const monthlyExpense = recurringExp + variableExp;
   const monthlyNet     = monthlyIncome - monthlyExpense;
 
-  let balance = netWorthByCurrency.find(([c]) => c === baseCurrency)?.[1] ?? 0;
+  let balance = netWorthConverted ?? netWorthByCurrency.find(([c]) => c === baseCurrency)?.[1] ?? 0;
   const projections = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() + 1 + i, 1);
     balance += monthlyNet;

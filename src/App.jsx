@@ -76,6 +76,7 @@ export default function App() {
   const [theme, setTheme]             = useState(() => getStored('app_theme', 'light'));
   const [toast, setToast]             = useState(null);
   const [fxRates, setFxRates]         = useState({});
+  const [currency, setCurrency]       = useState(null); // display currency; null = first account's
 
   const userId = session?.user?.id ?? null;
 
@@ -168,7 +169,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', h);
   }, []);
 
-  const view = useMemo(() => (raw ? withDerived(raw, period, undefined, fxRates) : null), [raw, period, fxRates]);
+  const view = useMemo(() => (raw ? withDerived(raw, period, undefined, fxRates, currency) : null), [raw, period, fxRates, currency]);
 
   // Fetch FX rates whenever we have multi-currency accounts
   useEffect(() => {
@@ -223,6 +224,14 @@ export default function App() {
           ))}
         </div>
         <div className="nav-right">
+          {view.multiCurrency && (
+            <div className="ccy-switch" role="tablist" aria-label="Display currency" title="Show every tab in this currency (others are converted)">
+              {view.currencies.map(c => (
+                <button key={c} role="tab" aria-selected={view.baseCurrency === c}
+                  className={view.baseCurrency === c ? 'active' : ''} onClick={() => setCurrency(c)}>{c}</button>
+              ))}
+            </div>
+          )}
           <button
             className="icon-btn theme-toggle"
             title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
@@ -282,7 +291,7 @@ export default function App() {
               <AccountDetailPage account={[...view.accounts, ...view.archivedAccounts].find(a => a.id === navDetail.item.id) ?? navDetail.item} allTransactions={view.transactions} onBack={() => setNavDetail(null)}/>
             )}
             {navDetail?.type === 'tag-detail' && (
-              <TagDetailPage tag={view.tags.find(t => t.id === navDetail.item.id) ?? navDetail.item} allTransactions={view.transactions} accounts={view.accounts} onBack={() => setNavDetail(null)}/>
+              <TagDetailPage tag={view.tags.find(t => t.id === navDetail.item.id) ?? navDetail.item} allTransactions={view.transactions} accounts={view.accounts} currency={view.baseCurrency} onBack={() => setNavDetail(null)}/>
             )}
             {!navDetail && navPage === 'dashboard'   && <DashboardPage   {...pageProps} onRefresh={IS_SUPABASE_CONFIGURED && !demoMode ? handleRefresh : null} refreshing={refreshing}/>}
             {!navDetail && navPage === 'insights'    && <InsightsPage    {...pageProps}/>}

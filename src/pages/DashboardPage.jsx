@@ -7,7 +7,7 @@ import AddTransactionModal from '../components/AddTransactionModal';
 import PeriodSelect from '../components/PeriodSelect';
 
 function DashboardPage({ appData, actions, period, onPeriod, onRefresh, refreshing }) {
-  const { accounts, tags, budgets, expensesData, summaryData, baseCurrency, multiCurrency } = appData;
+  const { accounts, tags, budgets, expensesData, summaryData, baseCurrency, multiCurrency, foreignExcluded } = appData;
   const [showAdd, setShowAdd] = useState(false);
   const [editTxn, setEditTxn] = useState(null);
 
@@ -54,7 +54,9 @@ function DashboardPage({ appData, actions, period, onPeriod, onRefresh, refreshi
         </div>
         {multiCurrency && (
           <div className="form-note" style={{margin:'0.25rem 0.25rem 0'}}>
-            Totals, charts and budgets include <strong>{baseCurrency}</strong> accounts only. See the sidebar for per-currency net worth — click <em>Fetch rates for total</em> to see a unified figure.
+            {foreignExcluded
+              ? <>Exchange rates haven't loaded, so accounts in other currencies are left out of these totals. Check your connection and use the sidebar's rate refresh.</>
+              : <>All currencies combined in <strong>{baseCurrency}</strong> at today's exchange rates (approximate). Switch the display currency in the top bar.</>}
           </div>
         )}
 

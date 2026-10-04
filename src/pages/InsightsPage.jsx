@@ -21,7 +21,7 @@ function Timeline({ current, previous, labelCur, labelPrev }) {
 }
 
 function InsightsPage({ appData, period, onPeriod }) {
-  const { tags, expensesData, incomeData, summaryData, baseCurrency, baseTransactions, rangedTransactions, accounts, range } = appData;
+  const { tags, expensesData, incomeData, summaryData, baseCurrency, baseTransactions, normalizedRanged, rangedTransactions, accounts, range } = appData;
   const [tab, setTab] = useState('expense');
 
   const series = useMemo(() => monthlySeries(baseTransactions, 12), [baseTransactions]);
@@ -33,8 +33,8 @@ function InsightsPage({ appData, period, onPeriod }) {
   const movers = useMemo(() => {
     const prev = previousRange(period);
     if (!prev) return null;
-    return topMovers(rangedTransactions, baseTransactions.filter(t => inRange(t.rawDate, prev)), tags).slice(0, 10);
-  }, [period, rangedTransactions, baseTransactions, tags]);
+    return topMovers(normalizedRanged, baseTransactions.filter(t => inRange(t.rawDate, prev)), tags).slice(0, 10);
+  }, [period, normalizedRanged, baseTransactions, tags]);
   const prevRange = previousRange(period);
 
   const now = new Date();

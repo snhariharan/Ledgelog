@@ -91,3 +91,30 @@ describe('withDerived', () => {
     expect(withDerived(raw, 'This Month', NOW).netWorthByCurrency).toEqual([['EUR', 10], ['INR', -5]]);
   });
 });
+
+describe('withDerived multi-currency (FX)', () => {
+  const RATES = { EUR: 0.9, INR: 90 }; // per 1 USD
+  const raw = {
+    accounts: [{ id: 1, name: 'A', currency: 'EUR', type: 'checking', balance: 100 }, { id: 2, name: 'B', currency: 'INR', type: 'checking', balance: 9000 }],
+    archivedAccounts: [], tags: TAGS, budgets: [],
+    transactions: [tx('2026-10-02', -10, ['Food'], { account: 'A' }), tx('2026-10-02', -900, ['Food'], { account: 'B' })],
+  };
+  it('without rates, foreign transactions are excluded and flagged', () => {
+    const v = withDerived(raw, 'This Month', NOW);
+    expect(v.foreignExcluded).toBe(true);
+    expect(v.summaryData.expense).toBe(-10);
+  });
+  it('with rates, everything is combined in the display currency', () => {
+    const v = withDerived(raw, 'This Month', NOW, RATES);
+    expect(v.foreignExcluded).toBe(false);
+    expect(v.currencies).toEqual(['EUR', 'INR']);
+    expect(v.summaryData.expense).toBe(-19); // 10 EUR + 900 INR (= 9 EUR)
+  });
+  it('can display in another currency', () => {
+    const v = withDerived(raw, 'This Month', NOW, RATES, 'INR');
+    expect(v.baseCurrency).toBe('INR');
+    expect(v.summaryData.expense).toBe(-1900); // 900 INR + 10 EUR (= 1000 INR)
+    expect(v.netWorthConverted).toBe(19000); // 100 EUR (= 10000 INR) + 9000 INR
+    expect(v.rangedTransactions).toHaveLength(2); // lists keep every currency
+  });
+});

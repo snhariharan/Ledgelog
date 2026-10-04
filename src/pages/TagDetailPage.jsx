@@ -3,12 +3,11 @@ import { ChevronLeft } from 'lucide-react';
 import { fmt } from '../helpers';
 import { incomeDelta, spendDelta } from '../lib/derive';
 
-function TagDetailPage({ tag, allTransactions, accounts = [], onBack }) {
+function TagDetailPage({ tag, allTransactions, accounts = [], currency, onBack }) {
   const txns   = allTransactions.filter(t => !t.deleted && t.tags?.includes(tag.name)).sort((a,b) => b.rawDate.localeCompare(a.rawDate));
-  const baseCur = accounts[0]?.currency || 'USD';
-  const curOf = t => accounts.find(a => a.name === t.account)?.currency || 'USD';
-  const sameCur = txns.filter(t => curOf(t) === baseCur);
-  const base = sameCur;
+  const baseCur = currency || accounts[0]?.currency || 'USD';
+  // Totals are in the display currency; foreign rows are converted (skipped if no rates yet).
+  const base = txns.filter(t => t.normalizedAmount != null).map(t => ({ ...t, amount: t.normalizedAmount }));
   const income  = base.reduce((s,t) => s + incomeDelta(t), 0);
   const expense = base.reduce((s,t) => s + spendDelta(t), 0);
   const [page, setPage] = useState(1);
@@ -98,7 +97,7 @@ function TagDetailPage({ tag, allTransactions, accounts = [], onBack }) {
                   <tr key={t.id} className="txn-row">
                     <td className="td-date">{t.date}</td>
                     <td style={{textAlign:'right',fontWeight:600,color:t.amount<0?'var(--red)':'var(--green)',fontSize:'0.82rem',whiteSpace:'nowrap'}}>
-                      {t.amount<0?'-':'+'}{fmt(Math.abs(t.amount), false, accounts.find(a=>a.name===t.account)?.currency || 'USD')}
+                      {t.amount<0?'-':'+'}{fmt(Math.abs(t.amount), false, accounts.find(a=>a.name===t.account)?.currency || baseCur)}
                     </td>
                     <td style={{fontSize:'0.82rem',color:'var(--text-1)'}}>{t.description}</td>
                     <td style={{fontSize:'0.72rem',color:'var(--text-3)'}}>{t.account}</td>

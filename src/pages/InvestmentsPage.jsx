@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { PiggyBank, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
-import { fmt, CURRENCIES, PRESET_COLORS, round2 } from '../helpers';
+import { fmt, CURRENCIES, PRESET_COLORS } from '../helpers';
+import { convertFX } from '../lib/derive';
 import { fetchTickerPrice } from '../lib/fx';
 import DonutChart from '../components/DonutChart';
 import Modal from '../components/Modal';
@@ -61,6 +62,28 @@ function InvestmentsPage({ appData, actions }) {
   const [priceStatus, setPriceStatus] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
+  // Holdings can be in different currencies. "ALL" converts everything into the
+  // display currency (needs exchange rates); otherwise one currency at a time.
+  const currencies = [...new Set(holdings.map(h => h.currency))];
+  const canCombine = currencies.length > 1 && appData.fxRates && Object.keys(appData.fxRates).length > 0;
+  const choice = cur === 'ALL' && canCombine ? 'ALL'
+    : cur && currencies.includes(cur) ? cur
+    : canCombine ? 'ALL'
+    : currencies.includes(baseCurrency) ? baseCurrency : (currencies[0] ?? baseCurrency);
+  const active = choice === 'ALL' ? baseCurrency : choice;
+  const toActive = (n, from) => (choice === 'ALL' ? convertFX(n, from, baseCurrency, appData.fxRates) : n);
+  const portfolio = holdings.filter(h => choice === 'ALL' || h.currency === choice).map(h => ({
+    ...h,
+    value: toActive(h.shares * h.price, h.currency),
+    gain: toActive(h.shares * (h.price - h.cost), h.currency),
+    costBasis: toActive(h.shares * h.cost, h.currency),
+    gainPct: h.cost > 0 ? ((h.price - h.cost) / h.cost) * 100 : 0,
+  }));
+  const totalValue = portfolio.reduce((s,p)=>s+p.value,0);
+  const totalCost  = portfolio.reduce((s,p)=>s+p.costBasis,0);
+  const totalGain  = totalValue - totalCost;
+  const returnPct  = totalCost > 0 ? (totalGain/totalCost)*100 : 0;
+
   const refreshPrices = useCallback(async () => {
     const tickers = [...new Set(portfolio.map(p => p.ticker))];
     if (!tickers.length) return;
@@ -79,20 +102,6 @@ function InvestmentsPage({ appData, actions }) {
     setTimeout(() => setPriceStatus(''), 6000);
   }, [portfolio, holdings, actions]);
 
-  // Holdings can be in different currencies; never add across them.
-  const currencies = [...new Set(holdings.map(h => h.currency))];
-  const active = cur && currencies.includes(cur) ? cur : (currencies.includes(baseCurrency) ? baseCurrency : currencies[0] ?? baseCurrency);
-  const portfolio = holdings.filter(h => h.currency === active).map(h => ({
-    ...h,
-    value: h.shares * h.price,
-    gain: h.shares * (h.price - h.cost),
-    gainPct: h.cost > 0 ? ((h.price - h.cost) / h.cost) * 100 : 0,
-  }));
-  const totalValue = portfolio.reduce((s,p)=>s+p.value,0);
-  const totalCost  = portfolio.reduce((s,p)=>s+p.shares*p.cost,0);
-  const totalGain  = totalValue - totalCost;
-  const returnPct  = totalCost > 0 ? (totalGain/totalCost)*100 : 0;
-
   const remove = h => { if (window.confirm(`Remove ${h.ticker}?`)) actions.deleteHolding(h.id); };
 
   return (
@@ -102,7 +111,8 @@ function InvestmentsPage({ appData, actions }) {
           <PiggyBank size={17} style={{color:'var(--blue)'}}/>
           <span className="page-ttl">Investments</span>
           {currencies.length > 1 && (
-            <select className="fselect" value={active} onChange={e => setCur(e.target.value)} style={{marginLeft:'0.5rem'}}>
+            <select className="fselect" value={choice} onChange={e => setCur(e.target.value)} style={{marginLeft:'0.5rem'}}>
+              {canCombine && <option value="ALL">All (≈ {baseCurrency})</option>}
               {currencies.map(c => <option key={c}>{c}</option>)}
             </select>
           )}
@@ -156,7 +166,7 @@ function InvestmentsPage({ appData, actions }) {
                         <div style={{fontWeight:600,fontSize:'0.8rem'}}>{p.ticker}</div>
                         <div style={{fontSize:'0.68rem',color:'var(--text-3)'}}>{p.name}</div>
                       </td>
-                      <td>{fmt(p.price, false, active)}</td>
+                      <td>{fmt(p.price, false, p.currency)}</td>
                       <td style={{fontWeight:600}}>{fmt(p.value, false, active)}</td>
                       <td style={{color:p.gain>=0?'var(--green)':'var(--red)',fontWeight:600}}>
                         {fmt(p.gain, true, active)}<br/>

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { fmt } from '../helpers';
+import { fmt, fmtCompact } from '../helpers';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // DONUT CHART
@@ -43,8 +43,8 @@ function DonutChart({ data, currency = 'USD' }) {
           ))}
         </svg>
         <div className="donut-center">
-          <div className="donut-val" style={{ color: hItem?.color }}>
-            {fmt(hItem ? hItem.amount : -total, false, currency)}
+          <div className="donut-val" style={{ color: hItem?.color }} title={fmt(hItem ? hItem.amount : -total, false, currency)}>
+            {fmtCompact(hItem ? hItem.amount : total, currency)}
           </div>
           <div className="donut-lbl" style={{ color: hItem?.color }}>
             {hItem ? hItem.name : 'Total'}

@@ -827,6 +827,7 @@ select.form-input option {
 .donut-wrap {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 1rem;
   padding: 0.75rem 1rem 0.875rem;
 }
@@ -847,10 +848,11 @@ select.form-input option {
   justify-content: center;
   pointer-events: none;
 }
-.donut-val { font-size: 1rem; font-weight: 700; color: var(--text-1); line-height: 1.1; }
-.donut-lbl { font-size: 0.65rem; color: var(--text-3); font-weight: 500; margin-top: 3px; }
+.donut-val { font-size: 0.95rem; font-weight: 700; color: var(--text-1); line-height: 1.1; max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.donut-lbl { font-size: 0.65rem; color: var(--text-3); font-weight: 500; margin-top: 3px; max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
 .donut-legend {
   flex: 1;
+  min-width: 140px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -2356,3 +2358,9 @@ select.form-input option {
 .toast-error { background: var(--red); color: #fff; }
 .toast-success { background: var(--green); color: #fff; }
 .form-note { font-size: 0.7rem; color: var(--text-3); margin-top: 0.25rem; }
+
+/* ── Display-currency switch ────────────────────────────────────────────── */
+.ccy-switch { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-right: 0.25rem; }
+.ccy-switch button { background: none; border: none; padding: 0.25rem 0.55rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; color: var(--text-3); cursor: pointer; }
+.ccy-switch button:hover { color: var(--text-1); }
+.ccy-switch button.active { background: var(--blue); color: #fff; }

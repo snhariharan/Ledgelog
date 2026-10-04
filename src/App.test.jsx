@@ -68,4 +68,18 @@ describe('App (demo mode)', () => {
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(document.querySelectorAll('.budgets-table tbody tr').length).toBe(rowsBefore + 1));
   });
+
+  it('switches every tab to another display currency', async () => {
+    renderApp();
+    await screen.findByText('Ledgelog');
+    const inr = screen.getByRole('tab', { name: 'INR' });
+    fireEvent.click(inr);
+    expect(inr).toHaveAttribute('aria-selected', 'true');
+    for (const page of ['Dashboard', 'Insights', 'Budgets', 'Forecast', 'Investments', 'Retirement', 'Rules']) {
+      openPage(page);
+      expect(screen.queryByRole('alert')).toBeNull();
+    }
+    openPage('Dashboard');
+    expect(document.querySelector('.summary-strip').textContent).toContain('₹');
+  });
 });

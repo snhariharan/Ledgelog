@@ -376,8 +376,9 @@ function LeftSidebar({ appData, actions, onSignOut, onNavigate, onRefreshRates }
 
   const { accounts, archivedAccounts: archived, tags, ious, repeats, favorites, netWorthByCurrency, netWorthConverted, baseCurrency: appBaseCurrency } = appData;
   const isMultiCurrency = netWorthByCurrency.length > 1;
-  const netWorth = netWorthByCurrency[0]?.[1] ?? 0;
-  const baseCurrency = netWorthByCurrency[0]?.[0] ?? 'USD';
+  const netWorth = netWorthByCurrency.find(([c]) => c === (appBaseCurrency ?? netWorthByCurrency[0]?.[0]))?.[1] ?? 0;
+  const shownNetWorth = netWorthConverted ?? netWorth;
+  const baseCurrency = appBaseCurrency ?? netWorthByCurrency[0]?.[0] ?? 'USD';
 
   const handleRefreshRates = async () => {
     if (!onRefreshRates) return;
@@ -425,50 +426,18 @@ function LeftSidebar({ appData, actions, onSignOut, onNavigate, onRefreshRates }
         {activeTab === 'accounts' && (
           <>
             <div className="nw-box">
-              <div className="nw-label">NET WORTH{isMultiCurrency && <span style={{fontSize:'0.5rem',marginLeft:4,opacity:0.7,fontWeight:500}}>BY CURRENCY</span>}</div>
-              {isMultiCurrency ? (
-                <div style={{display:'flex',flexDirection:'column',gap:'0.18rem',marginTop:'0.15rem'}}>
-                  {netWorthByCurrency.map(([cur, val]) => (
-                    <div key={cur} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:'0.5rem'}}>
-                      <span style={{fontSize:'0.62rem',fontWeight:600,color:'var(--text-3)',letterSpacing:'0.05em'}}>{cur}</span>
-                      <span style={{fontSize:'0.95rem',fontWeight:700,color:val>=0?'var(--green)':'var(--red)',letterSpacing:'-0.02em'}}>
-                        {val>=0?'+':''}{fmt(val, false, cur)}
-                      </span>
-                    </div>
-                  ))}
-                  {netWorthConverted != null ? (
-                    <div style={{marginTop:'0.3rem',paddingTop:'0.3rem',borderTop:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-                      <span style={{fontSize:'0.58rem',color:'var(--text-3)',fontWeight:500}}>≈ TOTAL ({baseCurrency})</span>
-                      <span style={{fontSize:'1rem',fontWeight:700,color:netWorthConverted>=0?'var(--green)':'var(--red)'}}>
-                        {netWorthConverted>=0?'+':''}{fmt(netWorthConverted, false, baseCurrency)}
-                      </span>
-                    </div>
-                  ) : (
-                    <button
-                      style={{marginTop:'0.35rem',fontSize:'0.6rem',color:'var(--blue)',background:'none',border:'none',cursor:'pointer',padding:0,textAlign:'left',display:'flex',alignItems:'center',gap:3}}
-                      onClick={handleRefreshRates}
-                      disabled={refreshingRates}
-                      title="Fetch current exchange rates to show unified net worth"
-                    >
-                      <RefreshCw size={9} style={refreshingRates ? {animation:'spin 0.8s linear infinite'} : undefined}/>
-                      {refreshingRates ? 'Fetching rates…' : 'Fetch rates for total'}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="nw-value" style={{color:netWorth>=0?'var(--green)':'var(--red)'}}>
-                  {netWorth>=0?'+':'-'}{fmt(Math.abs(netWorth), false, baseCurrency)}
-                </div>
-              )}
-              {isMultiCurrency && netWorthConverted != null && (
+              <div className="nw-label">NET WORTH<span style={{fontSize:'0.5rem',marginLeft:4,opacity:0.7,fontWeight:500}}>{baseCurrency}</span></div>
+              <div className="nw-value" style={{color:shownNetWorth>=0?'var(--green)':'var(--red)'}}>
+                {isMultiCurrency && netWorthConverted != null ? '≈ ' : ''}{shownNetWorth>=0?'+':'-'}{fmt(Math.abs(shownNetWorth), false, baseCurrency)}
+              </div>
+              {isMultiCurrency && netWorthConverted == null && (
                 <button
-                  style={{marginTop:'0.3rem',fontSize:'0.58rem',color:'var(--text-3)',background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:3}}
-                  onClick={handleRefreshRates}
-                  disabled={refreshingRates}
-                  title="Refresh exchange rates"
+                  style={{marginTop:'0.3rem',fontSize:'0.58rem',color:'var(--text-3)',background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:3,textAlign:'left'}}
+                  onClick={handleRefreshRates} disabled={refreshingRates}
+                  title="Other-currency accounts are excluded until exchange rates load"
                 >
                   <RefreshCw size={8} style={refreshingRates ? {animation:'spin 0.8s linear infinite'} : undefined}/>
-                  {refreshingRates ? 'Refreshing…' : 'Refresh rates'}
+                  {refreshingRates ? 'Fetching rates…' : `${baseCurrency} accounts only · load rates`}
                 </button>
               )}
             </div>

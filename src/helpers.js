@@ -26,6 +26,13 @@ export const fmt = (n, showSign = false, currencyCode = 'USD') => {
   return sym + str;
 };
 
+/** Short form for tight spaces: ₹474.8K, €1.2M. */
+export const fmtCompact = (n, currencyCode = 'USD') => {
+  const val = Number.isFinite(n) ? Math.abs(n) : 0;
+  const str = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(val);
+  return currencySymbol(currencyCode) + str;
+};
+
 // ── Dates (always local time, never UTC-shifted) ─────────────────────────────
 const pad = n => String(n).padStart(2, '0');
 export const toISODate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
