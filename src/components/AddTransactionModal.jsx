@@ -1,22 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Plus, X, RefreshCw } from 'lucide-react';
-import { TX_TYPES, TODAY } from '../helpers';
+import { TX_TYPES, todayISO, currencySymbol } from '../helpers';
+import { nextOccurrence } from '../lib/repeats';
 import TagInput from './TagInput';
 import TypePicker from './TypePicker';
 
 const NUM_ROWS = 5;
-function makeRow(accountName) {
-  return { id: Math.random(), desc: '', tags: [], amount: '', txType: 'expense', date: TODAY, account: accountName };
+function makeRow(accountId) {
+  return { id: Math.random(), desc: '', tags: [], amount: '', txType: 'expense', date: todayISO(), account: accountId };
 }
 
-const CURRENCY_SYMBOLS = { USD:'$', EUR:'€', GBP:'£', INR:'₹', JPY:'¥', AUD:'A$', CAD:'C$' };
+const isTransferType = t => t === 'transfer_in' || t === 'transfer_out';
 
-function AddTransactionModal({ onClose, onAdd, tagsList, accountsList, editData }) {
-  const defaultAcc = accountsList[0]?.name ?? '';
-  const getCurrencySymbol = (accName) => {
-    const code = accountsList.find(a => a.name === accName)?.currency || 'USD';
-    return CURRENCY_SYMBOLS[code] || code;
-  };
+function AddTransactionModal({ onClose, actions, tagsList, accountsList, editData }) {
+  const defaultAcc = accountsList[0]?.id ?? null;
+  const getCurrencySymbol = accId => currencySymbol(accountsList.find(a => a.id === accId)?.currency || 'USD');
   const [mode, setMode]     = useState(editData ? 'single' : 'multi');
   const [rows, setRows]     = useState(() => Array.from({ length: NUM_ROWS }, () => makeRow(defaultAcc)));
   const [saving, setSaving] = useState(false);
@@ -25,15 +23,14 @@ function AddTransactionModal({ onClose, onAdd, tagsList, accountsList, editData 
 
   // Single-form state
   const [sDesc, setSDesc]       = useState(editData?.description ?? '');
-  const [sTxType, setSTxType]   = useState(editData ? (editData.amount < 0 ? 'expense' : 'income') : 'expense');
+  const [sTxType, setSTxType]   = useState(editData ? (editData.type ?? (editData.amount < 0 ? 'expense' : 'income')) : 'expense');
   const [sAmount, setSAmount]   = useState(editData ? Math.abs(editData.amount).toString() : '');
-  const [sDate, setSDate]       = useState(editData?.rawDate ?? TODAY);
-  const [sAccount, setSAccount] = useState(editData?.account ?? defaultAcc);
+  const [sDate, setSDate]       = useState(editData?.rawDate ?? todayISO());
+  const [sAccount, setSAccount] = useState(editData?.accountId ?? accountsList.find(a => a.name === editData?.account)?.id ?? defaultAcc);
+  const [sCounter, setSCounter] = useState('');
   const [sTags, setSTags]       = useState(editData?.tags ?? []);
   const [sRepeat, setSRepeat]   = useState('never');
-  const [sMemo, setSMemo]       = useState('');
-  const [sStatus, setSStatus]   = useState('cleared');
-  const [sUrl, setSUrl]         = useState('');
+  const [sMemo, setSMemo]       = useState(editData?.notes ?? '');
   const [sErrors, setSErrors]   = useState({});
 
   useEffect(() => { firstRef.current?.focus(); }, [mode]);
@@ -64,14 +61,16 @@ function AddTransactionModal({ onClose, onAdd, tagsList, accountsList, editData 
     if (Object.keys(errs).length) { setErrors(errs); return; }
     if (filledRows.length === 0) { onClose(); return; }
     setSaving(true);
-    for (const r of filledRows) {
+    const ok = await actions.addTransactions(filledRows.map(r => {
       const meta = TX_TYPES.find(t => t.key === r.txType) ?? TX_TYPES[0];
       const num  = parseFloat(r.amount);
-      const amt  = meta.sign === '-' ? -num : num;
-      await onAdd({ amount: amt, description: r.desc.trim(), date: r.date, account: r.account, tags: r.tags });
-    }
+      return {
+        accountId: r.account, amount: meta.sign === '-' ? -num : num, description: r.desc.trim(),
+        date: r.date, tags: r.tags, type: r.txType,
+      };
+    }));
     setSaving(false);
-    onClose();
+    if (ok) onClose();
   };
 
   // ── Single helpers ─────────────────────────────────────────────────────────
@@ -79,6 +78,7 @@ function AddTransactionModal({ onClose, onAdd, tagsList, accountsList, editData 
     const e = {};
     if (!sDesc.trim()) e.desc = true;
     if (!sAmount || isNaN(parseFloat(sAmount)) || parseFloat(sAmount) <= 0) e.amount = true;
+    if (sAccount == null) e.account = true;
     return e;
   };
 
@@ -89,9 +89,22 @@ function AddTransactionModal({ onClose, onAdd, tagsList, accountsList, editData 
     const meta = TX_TYPES.find(t => t.key === sTxType) ?? TX_TYPES[0];
     const num  = parseFloat(sAmount);
     const amt  = meta.sign === '-' ? -num : num;
-    await onAdd({ id: editData?.id, amount: amt, description: sDesc.trim(), date: sDate, account: sAccount, tags: sTags });
+    const base = { accountId: sAccount, amount: amt, description: sDesc.trim(), date: sDate, tags: sTags, notes: sMemo.trim(), type: sTxType };
+    let ok;
+    if (editData) {
+      ok = await actions.updateTransaction({ id: editData.id, ...base });
+    } else {
+      ok = await actions.addTransactions([{ ...base, counterAccountId: isTransferType(sTxType) && sCounter ? Number(sCounter) : undefined }]);
+      if (ok && sRepeat !== 'never') {
+        const freq = { daily: 'Daily', weekly: 'Weekly', biweekly: 'Bi-weekly', monthly: 'Monthly', yearly: 'Yearly' }[sRepeat];
+        await actions.addRepeat({
+          description: base.description, amount: amt, frequency: freq, nextDate: nextOccurrence(sDate, freq),
+          tags: sTags, accountId: sAccount,
+        });
+      }
+    }
     setSaving(false);
-    onClose();
+    if (ok) onClose();
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -155,9 +168,9 @@ function AddTransactionModal({ onClose, onAdd, tagsList, accountsList, editData 
                   <select
                     className="mtx-select"
                     value={row.account}
-                    onChange={e => setField(idx, 'account', e.target.value)}
+                    onChange={e => setField(idx, 'account', Number(e.target.value))}
                   >
-                    {accountsList.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
+                    {accountsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </div>
               ))}
@@ -248,13 +261,19 @@ function AddTransactionModal({ onClose, onAdd, tagsList, accountsList, editData 
               <div className="sgl-row">
                 <div className="sgl-field-group sgl-col-wide">
                   <label className="sgl-label">ACCOUNT</label>
-                  <select className="sgl-select" value={sAccount} onChange={e => setSAccount(e.target.value)}>
-                    {accountsList.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
+                  <select className="sgl-select" value={sAccount ?? ''} onChange={e => setSAccount(Number(e.target.value))}>
+                    {accountsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
+                  {isTransferType(sTxType) && !editData && (
+                    <select className="sgl-select" style={{marginTop:'0.4rem'}} value={sCounter} onChange={e => setSCounter(e.target.value)}>
+                      <option value="">{sTxType === 'transfer_out' ? 'Transfer to… (optional)' : 'Transfer from… (optional)'}</option>
+                      {accountsList.filter(a => a.id !== sAccount).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  )}
                 </div>
                 <div className="sgl-field-group sgl-col-narrow">
                   <label className="sgl-label">REPEAT</label>
-                  <select className="sgl-select" value={sRepeat} onChange={e => setSRepeat(e.target.value)}>
+                  <select className="sgl-select" value={sRepeat} onChange={e => setSRepeat(e.target.value)} disabled={!!editData}>
                     <option value="never">NEVER</option>
                     <option value="daily">DAILY</option>
                     <option value="weekly">WEEKLY</option>
@@ -276,26 +295,6 @@ function AddTransactionModal({ onClose, onAdd, tagsList, accountsList, editData 
                     rows={4}
                   />
                 </div>
-                <div className="sgl-field-group sgl-col-narrow">
-                  <label className="sgl-label">STATUS</label>
-                  <select className="sgl-select" value={sStatus} onChange={e => setSStatus(e.target.value)}>
-                    <option value="cleared">CLEARED</option>
-                    <option value="pending">PENDING</option>
-                    <option value="reconciled">RECONCILED</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Row 6: URL */}
-              <div className="sgl-field-group">
-                <label className="sgl-label">URL</label>
-                <input
-                  type="url"
-                  className="sgl-input"
-                  placeholder=""
-                  value={sUrl}
-                  onChange={e => setSUrl(e.target.value)}
-                />
               </div>
 
             </div>

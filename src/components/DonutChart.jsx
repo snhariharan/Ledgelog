@@ -1,5 +1,4 @@
 import React, { useState, useCallback } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { fmt } from '../helpers';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -83,7 +82,7 @@ function BudgetsWidget({ budgets, period, currency = 'USD' }) {
     <div className="widget-card">
       <div className="widget-hdr">
         <span className="widget-ttl">Budgets</span>
-        <span className="widget-per">{period} <ChevronDown size={12}/></span>
+        <span className="widget-per">{period}</span>
       </div>
       <div className="budget-list">
         <div className="budget-list-hdr">
@@ -98,7 +97,7 @@ function BudgetsWidget({ budgets, period, currency = 'USD' }) {
               <div className="budget-row-top">
                 <span className="budget-name">{b.tag}</span>
                 <span className="budget-avail" style={{color: over?'var(--red)':'var(--green)'}}>
-                  {avail>=0?'+':''}{fmt(avail)}
+                  {avail>=0?'+':''}{fmt(avail, false, currency)}
                 </span>
               </div>
               <div className="budget-track">
@@ -110,7 +109,7 @@ function BudgetsWidget({ budgets, period, currency = 'USD' }) {
         <div className="budget-total">
           <span>Total</span>
           <span style={{color: totalAvail>=0?'var(--green)':'var(--red)', fontWeight:600}}>
-            {totalAvail>=0?'+':''}{fmt(totalAvail)}
+            {totalAvail>=0?'+':''}{fmt(totalAvail, false, currency)}
           </span>
         </div>
       </div>

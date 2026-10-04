@@ -1,406 +1,249 @@
 import React, { useState, useRef } from 'react';
-import { X, Save, User, Shield, FileText, Download, Upload as UploadIcon, Check } from 'lucide-react';
-import { APP_SETTINGS, setSetting } from '../helpers';
+import { X, User, Shield, FileText, Download, Upload as UploadIcon, Check, RefreshCw } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { transactionsToCSV, parseTransactionsCSV, normalizeRecords } from '../lib/csv';
+import { addDaysISO, todayISO } from '../helpers';
 
-export default function SettingsModal({ onClose, appData, setAppData, demoMode, initialTab = 'profile' }) {
-  const [activeTab, setActiveTab] = useState(initialTab);
-  const [theme, setTheme] = useState(APP_SETTINGS.theme);
-  const [msg, setMsg] = useState('');
-  
-  // Export states
-  const [exportPeriod, setExportPeriod] = useState('ALL');
-  const [exportFormat, setExportFormat] = useState('JSON');
-  
-  // Import states
-  const [importAccount, setImportAccount] = useState('auto');
-  const [importFile, setImportFile] = useState(null);
-  const [importStatus, setImportStatus] = useState(''); // '', 'uploading', 'success', 'error'
-  const [importProgress, setImportProgress] = useState(0);
-  
-  const fileInputRef = useRef(null);
+const labelStyle = { display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-3)', marginBottom: '0.4rem' };
+const cardStyle = { marginBottom: '1.5rem', background: 'var(--surface-alt)', padding: '1.25rem', borderRadius: '8px', border: '1px solid var(--border)' };
+const h3Style = { marginTop: 0, marginBottom: '1.5rem', fontSize: '1.15rem', color: 'var(--text-1)', fontWeight: 700 };
+const h4Style = { marginTop: 0, marginBottom: '1rem', fontSize: '1rem', color: 'var(--text-1)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' };
 
-  const handleSave = () => {
-    let reloadsNeeded = false;
-    if (theme !== APP_SETTINGS.theme) {
-      setSetting('theme', theme);
-      reloadsNeeded = true;
-    }
-    
-    if (reloadsNeeded) {
-      window.location.reload();
-    } else {
-      onClose();
-    }
-  };
+const TABS = [
+  { key: 'profile', label: 'Profile', Icon: User },
+  { key: 'security', label: 'Security', Icon: Shield },
+  { key: 'transactions', label: 'Transactions', Icon: FileText },
+];
 
-  const handleExport = () => {
-    let exportData = '';
-    let mimeType = '';
-    let ext = '';
+function download(content, mime, filename) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
-    const txns = appData?.transactions || [];
-    let filteredTxns = txns;
-    if (exportPeriod === '30D') {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      filteredTxns = txns.filter(t => new Date(t.date) >= thirtyDaysAgo);
-    } else if (exportPeriod === 'YEAR') {
-      const startOfYear = new Date(new Date().getFullYear(), 0, 1);
-      filteredTxns = txns.filter(t => new Date(t.date) >= startOfYear);
-    }
+function PasswordForm({ notify }) {
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
 
-    if (exportFormat === 'CSV') {
-      mimeType = 'text/csv';
-      ext = 'csv';
-      const header = 'Date,Description,Amount,Type,Tags\n';
-      const rows = filteredTxns.map(t => {
-        const desc = `"${(t.description || '').replace(/"/g, '""')}"`;
-        const tags = `"${(t.tags || []).join(', ')}"`;
-        return `${t.date},${desc},${t.amount},${t.type},${tags}`;
-      }).join('\n');
-      exportData = header + rows;
-    } else {
-      mimeType = 'application/json';
-      ext = 'json';
-      exportData = JSON.stringify({
-        transactions: filteredTxns,
-        accounts: appData?.accounts || [],
-        tags: appData?.tags || []
-      }, null, 2);
-    }
-
-    const blob = new Blob([exportData], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ledgelog_export_${new Date().toISOString().split('T')[0]}.${ext}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setMsg('Data exported successfully.');
-    setTimeout(() => setMsg(''), 3000);
-  };
-
-  const onFileSelect = (e) => {
-    setImportFile(e.target.files?.[0] || null);
-  };
-
-  const handleImport = () => {
-    if (!importFile) return;
-    setImportStatus('uploading');
-    setImportProgress(0);
-    setMsg('Reading file...');
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const text = evt.target.result;
-        let importedTxns = [];
-        if (importFile.name.toLowerCase().endsWith('.csv')) {
-          const lines = text.split(/\r?\n/).filter(l => l.trim());
-          if (lines.length > 1) {
-            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-            for (let i = 1; i < lines.length; i++) {
-              const cols = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/^"|"$/g, '').trim());
-              const rowObj = {};
-              headers.forEach((h, idx) => { rowObj[h] = cols[idx]; });
-              
-              const amt = parseFloat(rowObj.amount || '0');
-              const rawDate = rowObj.date || new Date().toISOString().slice(0, 10);
-              const tx = {
-                id: rowObj.id || Date.now() + Math.random(),
-                date: new Date(rawDate).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}),
-                rawDate,
-                amount: amt,
-                description: rowObj.description || '',
-                tags: rowObj.tags && rowObj.tags.trim() ? rowObj.tags.split(',').map(t => t.replace(/^"|"$/g, '').trim()).filter(Boolean) : [],
-                account: importAccount === 'auto' ? (rowObj.account || 'Default') : appData?.accounts?.find(a=>a.id==importAccount)?.name || 'Default',
-                type: rowObj.type ? rowObj.type.toLowerCase() : (amt < 0 ? 'expense' : 'income'),
-                deleted: false,
-                untagged: !rowObj.tags,
-                _csvCurrency: rowObj.currency || 'USD'
-              };
-              importedTxns.push(tx);
-            }
-          }
-        } else {
-          const imported = JSON.parse(text);
-          importedTxns = imported.transactions || [];
-        }
-
-        if (importedTxns.length === 0) {
-          throw new Error('No transactions found in file.');
-        }
-
-        const total = importedTxns.length;
-        setMsg(`Processing ${total} transactions...`);
-        
-        // Organic simulated progress delay since local parse is instant
-        const chunks = 10;
-        for (let i = 0; i < chunks; i++) {
-           await new Promise(r => setTimeout(r, 60));
-           setImportProgress(Math.floor(((i + 1) / chunks) * 100));
-        }
-
-        if (setAppData) {
-          setAppData(prev => {
-            const existingIds = new Set(prev?.transactions?.map(t => String(t.id)) || []);
-            const newTxns = importedTxns.filter(t => !existingIds.has(String(t.id)));
-
-            const accountMap = new Map((prev?.accounts || []).map(a => [a.name, a]));
-            let maxAccId = prev?.accounts?.length > 0 ? Math.max(...prev.accounts.map(a => a.id)) : 0;
-            
-            const tagMap = new Map((prev?.tags || []).map(t => [t.name, t]));
-            let maxTagId = prev?.tags?.length > 0 ? Math.max(...prev.tags.map(t => t.id)) : 0;
-
-            const getBalanceDelta = (amt, type) => type === 'credit' ? -amt : amt;
-
-            newTxns.forEach(tx => {
-              if (tx.account && !accountMap.has(tx.account)) {
-                accountMap.set(tx.account, {
-                  id: ++maxAccId,
-                  name: tx.account,
-                  balance: 0,
-                  type: 'checking',
-                  currency: tx._csvCurrency || 'USD'
-                });
-              }
-
-              // Update account balance
-              if (tx.account) {
-                const acc = accountMap.get(tx.account);
-                if (acc) acc.balance += getBalanceDelta(tx.amount, acc.type);
-              }
-
-              if (tx.tags && tx.tags.length > 0) {
-                tx.tags.forEach(tagName => {
-                  if (!tagMap.has(tagName)) {
-                    tagMap.set(tagName, {
-                      id: ++maxTagId,
-                      name: tagName,
-                      color: `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`
-                    });
-                  }
-                });
-              }
-              delete tx._csvCurrency;
-            });
-
-            return { 
-              ...prev, 
-              transactions: [...newTxns, ...(prev?.transactions || [])],
-              accounts: Array.from(accountMap.values()),
-              tags: Array.from(tagMap.values())
-            };
-          });
-        }
-        
-        setImportProgress(100);
-        setImportStatus('success');
-        setMsg('Data imported successfully!');
-
-        setTimeout(() => {
-          setMsg('');
-          setImportStatus('');
-          setImportProgress(0);
-          onClose();
-        }, 1500);
-
-      } catch (err) {
-        setImportStatus('error');
-        setMsg(err.message || 'Error processing file. Ensure it is valid JSON or CSV.');
-        setTimeout(() => {
-          setMsg('');
-          setImportStatus('');
-          setImportProgress(0);
-        }, 4000);
-      }
-      
-      setImportFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-    reader.onerror = () => {
-      setImportStatus('error');
-      setMsg('Failed to read file from disk.');
-    };
-    reader.readAsText(importFile);
+  const submit = async e => {
+    e.preventDefault();
+    setErr('');
+    if (pw.length < 8) return setErr('Use at least 8 characters.');
+    if (pw !== pw2) return setErr('Passwords do not match.');
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({ password: pw });
+    setBusy(false);
+    if (error) return setErr(error.message);
+    setPw(''); setPw2('');
+    notify('Password updated.');
   };
 
   return (
+    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', maxWidth: 320 }}>
+      {err && <div className="form-err">{err}</div>}
+      <div className="form-group">
+        <label className="form-label">NEW PASSWORD</label>
+        <input className="form-input" type="password" autoComplete="new-password" value={pw} onChange={e => setPw(e.target.value)}/>
+      </div>
+      <div className="form-group">
+        <label className="form-label">CONFIRM PASSWORD</label>
+        <input className="form-input" type="password" autoComplete="new-password" value={pw2} onChange={e => setPw2(e.target.value)}/>
+      </div>
+      <div><button className="btn-pri" type="submit" disabled={busy}>{busy ? 'Updating…' : 'Change Password'}</button></div>
+    </form>
+  );
+}
+
+export default function SettingsModal({ onClose, appData, actions, demoMode, theme, onTheme, notify, initialTab = 'profile' }) {
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [exportPeriod, setExportPeriod] = useState('ALL');
+  const [exportFormat, setExportFormat] = useState('JSON');
+  const [importAccount, setImportAccount] = useState('auto');
+  const [importTags, setImportTags] = useState(true);
+  const [importFile, setImportFile] = useState(null);
+  const [importState, setImportState] = useState({ status: '', msg: '', errors: [] }); // status: '', busy, success, error
+  const fileInputRef = useRef(null);
+
+  const handleExport = () => {
+    const today = todayISO();
+    let txns = appData.transactions.filter(t => !t.deleted);
+    if (exportPeriod === '30D') txns = txns.filter(t => t.rawDate >= addDaysISO(today, -30));
+    else if (exportPeriod === 'YEAR') txns = txns.filter(t => t.rawDate >= `${today.slice(0, 4)}-01-01`);
+
+    if (exportFormat === 'CSV') {
+      download('﻿' + transactionsToCSV(txns), 'text/csv;charset=utf-8', `ledgelog_export_${today}.csv`);
+    } else {
+      download(JSON.stringify({
+        transactions: txns.map(({ rawDate, description, amount, type, tags, account, currency, notes }) => ({ date: rawDate, description, amount, type, tags, account, currency, notes })),
+        accounts: appData.accounts, tags: appData.tags,
+      }, null, 2), 'application/json', `ledgelog_export_${today}.json`);
+    }
+    notify(`Exported ${txns.length} transaction${txns.length === 1 ? '' : 's'}.`);
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    setImportState({ status: 'busy', msg: 'Reading file…', errors: [] });
+    try {
+      const text = await importFile.text();
+      let parsed;
+      if (importFile.name.toLowerCase().endsWith('.csv')) {
+        parsed = parseTransactionsCSV(text, { importTags });
+      } else {
+        const json = JSON.parse(text);
+        if (!Array.isArray(json.transactions)) throw new Error('JSON file must contain a "transactions" array.');
+        parsed = normalizeRecords(json.transactions, { importTags });
+      }
+      if (parsed.items.length === 0) {
+        setImportState({ status: 'error', msg: 'No importable transactions found.', errors: parsed.errors.slice(0, 5) });
+        return;
+      }
+      setImportState({ status: 'busy', msg: `Importing ${parsed.items.length} transactions…`, errors: [] });
+      const result = await actions.importTransactions(parsed.items, { accountId: importAccount === 'auto' ? undefined : Number(importAccount) });
+      if (!result) { setImportState({ status: '', msg: '', errors: [] }); return; } // action already showed the error
+      const bits = [`Imported ${result.added}`];
+      if (result.skipped) bits.push(`skipped ${result.skipped} duplicate${result.skipped > 1 ? 's' : ''}`);
+      if (parsed.errors.length) bits.push(`${parsed.errors.length} invalid row${parsed.errors.length > 1 ? 's' : ''} ignored`);
+      setImportState({ status: 'success', msg: bits.join(', ') + '.', errors: parsed.errors.slice(0, 5) });
+      setImportFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (err) {
+      setImportState({ status: 'error', msg: err.message || 'Could not read that file. Use a valid CSV or JSON export.', errors: [] });
+    }
+  };
+
+  const banner = (kind, children) => (
+    <div className="animate-fade-in" style={{
+      padding: '0.75rem 1rem', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 500, marginTop: '1rem',
+      background: kind === 'ok' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: kind === 'ok' ? 'var(--green)' : 'var(--red)',
+      border: `1px solid ${kind === 'ok' ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
+    }}>{children}</div>
+  );
+
+  return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, width: '90vw', display: 'flex', flexDirection: 'column', height: '60vh', minHeight: 450, padding: 0 }}>
-        <div className="modal-hdr" style={{padding: '1.25rem', borderBottom: '1px solid var(--modal-border)', flexShrink: 0}}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, width: '90vw', display: 'flex', flexDirection: 'column', height: '70vh', minHeight: 450, padding: 0 }}>
+        <div className="modal-hdr" style={{ padding: '1.25rem', borderBottom: '1px solid var(--modal-border)', flexShrink: 0 }}>
           <div className="modal-title">Settings</div>
-          <button className="icon-btn" onClick={onClose}><X size={16}/></button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16}/></button>
         </div>
-        
+
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          {/* Sidebar */}
           <div style={{ width: 180, borderRight: '1px solid var(--modal-border)', background: 'var(--surface-alt)', padding: '0.75rem 0', flexShrink: 0, overflowY: 'auto' }}>
-            <div 
-              onClick={() => setActiveTab('profile')}
-              style={{ padding: '0.65rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', background: activeTab==='profile' ? 'var(--hover)' : 'transparent', color: activeTab==='profile' ? 'var(--blue)' : 'var(--text-2)', fontSize: '0.85rem', fontWeight: activeTab==='profile' ? 600 : 500, borderRight: activeTab==='profile' ? '3px solid var(--blue)' : '3px solid transparent' }}
-            >
-              <User size={16}/> Profile
-            </div>
-            <div 
-              onClick={() => setActiveTab('security')}
-              style={{ padding: '0.65rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', background: activeTab==='security' ? 'var(--hover)' : 'transparent', color: activeTab==='security' ? 'var(--blue)' : 'var(--text-2)', fontSize: '0.85rem', fontWeight: activeTab==='security' ? 600 : 500, borderRight: activeTab==='security' ? '3px solid var(--blue)' : '3px solid transparent' }}
-            >
-              <Shield size={16}/> Security
-            </div>
-            <div 
-              onClick={() => setActiveTab('transactions')}
-              style={{ padding: '0.65rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', background: activeTab==='transactions' ? 'var(--hover)' : 'transparent', color: activeTab==='transactions' ? 'var(--blue)' : 'var(--text-2)', fontSize: '0.85rem', fontWeight: activeTab==='transactions' ? 600 : 500, borderRight: activeTab==='transactions' ? '3px solid var(--blue)' : '3px solid transparent' }}
-            >
-              <FileText size={16}/> Transactions
-            </div>
+            {TABS.map(({ key, label, Icon }) => (
+              <div key={key} onClick={() => setActiveTab(key)} style={{
+                padding: '0.65rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.85rem',
+                background: activeTab === key ? 'var(--hover)' : 'transparent',
+                color: activeTab === key ? 'var(--blue)' : 'var(--text-2)',
+                fontWeight: activeTab === key ? 600 : 500,
+                borderRight: activeTab === key ? '3px solid var(--blue)' : '3px solid transparent',
+              }}>
+                <Icon size={16}/> {label}
+              </div>
+            ))}
           </div>
-          
-          {/* Main content */}
+
           <div style={{ flex: 1, padding: '1.75rem', overflowY: 'auto', background: 'var(--modal-bg)' }}>
             {activeTab === 'profile' && (
               <div className="animate-fade-in">
-                <h3 style={{marginTop: 0, marginBottom: '1.5rem', fontSize: '1.15rem', color: 'var(--text-1)', fontWeight: 700}}>Profile Settings</h3>
-                <div style={{marginBottom: '1.5rem'}}>
-                  <label style={{display: 'block', marginBottom: '0.5rem', fontWeight: 700, fontSize: '0.75rem', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Theme Preferences</label>
-                  <select className="fselect" value={theme} onChange={e => setTheme(e.target.value)} style={{maxWidth: 300}}>
+                <h3 style={h3Style}>Profile Settings</h3>
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <label style={{ ...labelStyle, fontSize: '0.75rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Theme</label>
+                  <select className="fselect" value={theme} onChange={e => onTheme(e.target.value)} style={{ maxWidth: 300 }}>
                     <option value="light">Light Mode</option>
                     <option value="dark">Dark Mode</option>
                   </select>
                 </div>
-                <div style={{marginBottom: '1.5rem'}}>
-                  <label style={{display: 'block', marginBottom: '0.5rem', fontWeight: 700, fontSize: '0.75rem', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Account Type</label>
-                  <div style={{fontSize: '0.9rem', color: 'var(--text-1)'}}>{demoMode ? 'Demo Account' : 'Standard User'}</div>
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <label style={{ ...labelStyle, fontSize: '0.75rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Account</label>
+                  <div style={{ fontSize: '0.9rem', color: 'var(--text-1)' }}>{demoMode ? 'Demo account (data resets on reload)' : 'Signed in'}</div>
                 </div>
               </div>
             )}
 
             {activeTab === 'security' && (
               <div className="animate-fade-in">
-                <h3 style={{marginTop: 0, marginBottom: '1.5rem', fontSize: '1.15rem', color: 'var(--text-1)', fontWeight: 700}}>Security</h3>
-                <div style={{fontSize: '0.9rem', color: 'var(--text-2)', marginBottom: '1.5rem'}}>
-                  Manage your security preferences and password.
-                </div>
-                {!demoMode ? (
-                  <button className="btn-sec" style={{fontSize: '0.85rem', fontWeight: 600}}>Change Password</button>
-                ) : (
-                  <div style={{color: 'var(--text-3)', fontStyle: 'italic', fontSize: '0.85rem', background: 'var(--surface-alt)', padding: '1rem', borderRadius: '6px', border: '1px solid var(--border)'}}>
+                <h3 style={h3Style}>Security</h3>
+                {demoMode ? (
+                  <div style={{ color: 'var(--text-3)', fontStyle: 'italic', fontSize: '0.85rem', background: 'var(--surface-alt)', padding: '1rem', borderRadius: '6px', border: '1px solid var(--border)' }}>
                     Security settings are disabled in demo mode.
                   </div>
-                )}
+                ) : <PasswordForm notify={notify}/>}
               </div>
             )}
 
             {activeTab === 'transactions' && (
               <div className="animate-fade-in">
-                <h3 style={{marginTop: 0, marginBottom: '1.5rem', fontSize: '1.15rem', color: 'var(--text-1)', fontWeight: 700}}>Data & Transactions</h3>
-                
-                {/* Export Card */}
-                <div style={{marginBottom: '2rem', background: 'var(--surface-alt)', padding: '1.25rem', borderRadius: '8px', border: '1px solid var(--border)'}}>
-                  <h4 style={{marginTop: 0, marginBottom: '1rem', fontSize: '1rem', color: 'var(--text-1)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                    <Download size={16} color="var(--blue)"/> Download Data
-                  </h4>
-                  <div style={{display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap'}}>
-                    <div style={{flex: 1, minWidth: 140}}>
-                      <label style={{display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-3)', marginBottom: '0.4rem'}}>PERIOD</label>
+                <h3 style={h3Style}>Data & Transactions</h3>
+
+                <div style={cardStyle}>
+                  <h4 style={h4Style}><Download size={16} color="var(--blue)"/> Download Data</h4>
+                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <label style={labelStyle}>PERIOD</label>
                       <select className="fselect" value={exportPeriod} onChange={e => setExportPeriod(e.target.value)}>
                         <option value="ALL">All Time</option>
                         <option value="30D">Last 30 Days</option>
                         <option value="YEAR">This Year</option>
                       </select>
                     </div>
-                    <div style={{flex: 1, minWidth: 140}}>
-                      <label style={{display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-3)', marginBottom: '0.4rem'}}>FORMAT</label>
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <label style={labelStyle}>FORMAT</label>
                       <select className="fselect" value={exportFormat} onChange={e => setExportFormat(e.target.value)}>
                         <option value="JSON">JSON Backup</option>
-                        <option value="CSV">EXCEL (.csv)</option>
+                        <option value="CSV">Spreadsheet (.csv)</option>
                       </select>
                     </div>
                   </div>
-                  <button className="btn-pri" onClick={handleExport} style={{fontWeight: 600}}>DOWNLOAD</button>
+                  <button className="btn-pri" onClick={handleExport} style={{ fontWeight: 600 }}>DOWNLOAD</button>
                 </div>
 
-                {/* Import Card */}
-                <div style={{marginBottom: '1rem', background: 'var(--surface-alt)', padding: '1.25rem', borderRadius: '8px', border: '1px solid var(--border)'}}>
-                  <h4 style={{marginTop: 0, marginBottom: '1rem', fontSize: '1rem', color: 'var(--text-1)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                    <UploadIcon size={16} color="var(--blue)"/> Upload Transactions
-                  </h4>
-                  <div style={{display: 'flex', gap: '2rem', flexWrap: 'wrap'}}>
-                    <div style={{flex: 1, minWidth: 200}}>
-                      <div style={{marginBottom: '1rem'}}>
-                        <label style={{display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-3)', marginBottom: '0.4rem'}}>ACCOUNT</label>
-                        <select className="fselect" value={importAccount} onChange={e => setImportAccount(e.target.value)}>
-                          <option value="auto">Auto-detect from file</option>
-                          {appData?.accounts?.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                        </select>
-                      </div>
-                      <div style={{marginBottom: '1.25rem'}}>
-                        <label style={{display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-3)', marginBottom: '0.4rem'}}>SELECT FILE</label>
-                        <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                          <input type="file" accept=".json,.csv" ref={fileInputRef} onChange={onFileSelect} style={{display: 'none'}} />
-                          <button className="btn-sec" onClick={() => fileInputRef.current?.click()} style={{fontSize: '0.75rem', padding: '0.3rem 0.6rem'}}>Choose file</button>
-                          <span style={{fontSize: '0.75rem', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120}}>
-                            {importFile ? importFile.name : 'No file chosen'}
-                          </span>
-                        </div>
-                      </div>
-                      <button className="btn-pri" onClick={handleImport} disabled={!importFile} style={{fontWeight: 600, opacity: importFile ? 1 : 0.5}}>UPLOAD</button>
-                    </div>
-                    
-                    <div style={{flex: 1, minWidth: 200, borderLeft: '1px solid var(--border)', paddingLeft: '2rem'}}>
-                      <label style={{display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-1)', marginBottom: '0.75rem'}}>SETTINGS</label>
-                      <label style={{display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-2)', marginBottom: '0.5rem', cursor: 'pointer'}}>
-                        <input type="checkbox" defaultChecked /> Auto-detect character encoding
-                      </label>
-                      <label style={{display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-2)', marginBottom: '0.5rem', cursor: 'pointer'}}>
-                        <input type="checkbox" defaultChecked /> Import tags from uploaded file
-                      </label>
-                      <label style={{display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-2)', marginBottom: '0.5rem', cursor: 'pointer'}}>
-                        <input type="checkbox" /> Remind me when statement is due
-                      </label>
-                    </div>
+                <div style={cardStyle}>
+                  <h4 style={h4Style}><UploadIcon size={16} color="var(--blue)"/> Upload Transactions</h4>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={labelStyle}>ACCOUNT</label>
+                    <select className="fselect" value={importAccount} onChange={e => setImportAccount(e.target.value)}>
+                      <option value="auto">Use the Account column (creates missing accounts)</option>
+                      {appData.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
                   </div>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={labelStyle}>FILE (.csv or .json)</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <input type="file" accept=".json,.csv" ref={fileInputRef} onChange={e => { setImportFile(e.target.files?.[0] || null); setImportState({ status: '', msg: '', errors: [] }); }} style={{ display: 'none' }}/>
+                      <button className="btn-sec" onClick={() => fileInputRef.current?.click()} style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}>Choose file</button>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+                        {importFile ? importFile.name : 'No file chosen'}
+                      </span>
+                    </div>
+                    <div className="form-note">Columns: Date, Description, Amount (required); Type, Tags, Account, Currency, Notes (optional). Rows already in your ledger are skipped.</div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-2)', marginBottom: '1rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={importTags} onChange={e => setImportTags(e.target.checked)}/> Import tags from file
+                  </label>
+                  <button className="btn-pri" onClick={handleImport} disabled={!importFile || importState.status === 'busy'} style={{ fontWeight: 600, opacity: importFile ? 1 : 0.5 }}>
+                    {importState.status === 'busy' ? <><RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite' }}/> {importState.msg}</> : 'UPLOAD'}
+                  </button>
+
+                  {importState.status === 'success' && banner('ok', <><Check size={16} style={{ verticalAlign: 'text-bottom' }}/> {importState.msg}</>)}
+                  {importState.status === 'error' && banner('err', importState.msg)}
+                  {importState.errors.length > 0 && (
+                    <ul style={{ fontSize: '0.72rem', color: 'var(--text-3)', margin: '0.5rem 0 0', paddingLeft: '1.1rem' }}>
+                      {importState.errors.map(e => <li key={e}>{e}</li>)}
+                    </ul>
+                  )}
                 </div>
-
-                  {importStatus === 'uploading' && (
-                    <div className="animate-fade-in" style={{marginTop: '1.5rem'}}>
-                      <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-2)', marginBottom: '0.4rem', fontWeight: 600}}>
-                        <span>{msg}</span>
-                        <span>{importProgress}%</span>
-                      </div>
-                      <div style={{height: '6px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden'}}>
-                        <div style={{height: '100%', width: `${importProgress}%`, background: 'var(--blue)', transition: 'width 0.3s ease'}} />
-                      </div>
-                    </div>
-                  )}
-
-                  {importStatus === 'success' && (
-                    <div className="animate-fade-in" style={{padding: '0.75rem 1rem', background: 'rgba(16,185,129,0.1)', color: 'var(--green)', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1.5rem', border: '1px solid rgba(16,185,129,0.3)'}}>
-                      <Check size={16} /> {msg}
-                    </div>
-                  )}
-
-                  {importStatus === 'error' && (
-                    <div className="animate-fade-in" style={{padding: '0.75rem 1rem', background: 'rgba(239,68,68,0.1)', color: 'var(--red)', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1.5rem', border: '1px solid rgba(239,68,68,0.3)'}}>
-                      <X size={16} /> {msg}
-                    </div>
-                  )}
-
-                {msg && !importStatus && (
-                  <div className="animate-fade-in" style={{padding: '0.75rem 1rem', background: 'rgba(16,185,129,0.1)', color: 'var(--green)', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.5rem', border: '1px solid rgba(16,185,129,0.3)'}}>
-                    <Check size={16} /> {msg}
-                  </div>
-                )}
               </div>
             )}
           </div>
         </div>
 
-        <div className="modal-footer" style={{padding: '1rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--modal-border)', flexShrink: 0}}>
-          <button className="btn-sec" onClick={onClose} style={{fontWeight: 600}}>Cancel</button>
-          <button className="btn-pri" onClick={handleSave} style={{fontWeight: 600}}><Save size={14}/> Save Changes</button>
+        <div className="modal-footer" style={{ padding: '1rem 1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--modal-border)', flexShrink: 0 }}>
+          <button className="btn-sec" onClick={onClose} style={{ fontWeight: 600 }}>Close</button>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 # Supabase Backend Setup
 
-## Quick Start (3 SQL files + 1 env update)
+## Quick Start (5 SQL files + 1 env update)
 
 ### Prerequisites
 - A free [Supabase](https://supabase.com) account and project
@@ -28,6 +28,8 @@ Creates:
 | `repeating_transactions` | Recurring scheduled transactions |
 | `repeating_transaction_tags` | Many-to-many: repeating ↔ tags |
 | `favorites` | Saved reports/filter views |
+| `rules` | Auto-tag rules (added in 05) |
+| `holdings` | Manual investment holdings (added in 05) |
 | `v_budget_status` | View: budget + current-month spending |
 | `v_expense_by_tag_current_month` | View: donut chart data |
 | `v_net_worth` | View: sum of account balances |
@@ -49,6 +51,29 @@ Locks every table so users can only read/write their own data.
 Paste and run [`03_seed_data.sql`](./03_seed_data.sql)
 
 Inserts: 5 accounts · 14 tags · 8 budgets · 52 transactions · 3 IOUs · 6 recurring · 3 favorites
+
+### 04 — Migrations
+Paste and run [`04_migrations.sql`](./04_migrations.sql) — currency, credit limit, `loan` account type.
+
+### 05 — Hardening & feature tables
+Paste and run [`05_hardening.sql`](./05_hardening.sql). **Required** for the current app. It:
+
+| Change | Why |
+|---|---|
+| Views get `security_invoker = true` | Without it a view runs as its owner and **bypasses RLS** — any signed-in user could read everyone's totals |
+| `transactions.tx_type`, `transfer_group_id` | Refunds and paired transfers; transfers no longer count as income/expense |
+| Balance trigger on `transactions` | `accounts.balance` stays correct on insert / edit / soft-delete / delete |
+| Repeat frequencies `Daily, Weekly, Bi-weekly, Monthly, Yearly` | Matches the UI |
+| Ownership checks on `account_id` / `tag_id` | A user can't attach rows to someone else's accounts or tags |
+| New tables `rules`, `holdings` | Persisted auto-tag rules and manual investment holdings |
+
+> The balance trigger only affects writes made **after** it is installed. If you use the seed file, run it **before** `05`.
+
+#### Verify RLS (recommended)
+Sign in as two different users and, from the browser console of the app, confirm the second user gets zero rows from the first user's data:
+```js
+await supabase.from('v_monthly_summary').select('*')   // only your own rows, even without .eq('user_id', …)
+```
 
 ---
 
@@ -96,7 +121,7 @@ profiles (1)──────< favorites (N)
 ## Useful Queries
 
 ```sql
--- Check budget status for current month
+-- Check budget status for current month (the app derives this client-side; the view is for ad-hoc SQL)
 SELECT * FROM v_budget_status WHERE user_id = auth.uid();
 
 -- Monthly income vs expense

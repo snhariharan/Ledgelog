@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import {
   Landmark, Calendar, Tag, Users, Star, Plus,
   PlusCircle, Edit2, Trash2, Archive, LogOut,
-  ChevronDown, X, Check, RefreshCw,
+  ChevronDown, X,
 } from 'lucide-react';
-import { fmt, PRESET_COLORS, ACCOUNT_TYPES, IOU_FREQS } from '../helpers';
+import { fmt, PRESET_COLORS, ACCOUNT_TYPES, CURRENCIES, REPEAT_FREQS, todayISO } from '../helpers';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // LEFT SIDEBAR — vertical nav, collapsible, with full CRUD modals
@@ -47,11 +47,16 @@ function AddAccountModal({ onClose, onAdd }) {
   const [bal,   setBal]    = useState('');
   const [err,   setErr]    = useState('');
 
-  const submit = e => {
+  const [limit, setLimit] = useState('');
+
+  const submit = async e => {
     e.preventDefault();
     if (!name.trim()) return setErr('Account name is required.');
-    onAdd({ id: Date.now(), name: name.trim(), institution: inst.trim()||'—', type, currency, balance: parseFloat(bal)||0 });
-    onClose();
+    const ok = await onAdd({
+      name: name.trim(), institution: inst.trim()||'—', type, currency, balance: parseFloat(bal)||0,
+      limit: type === 'credit' && limit ? parseFloat(limit) : null,
+    });
+    if (ok) onClose();
   };
   return (
     <SbModal title="Add Account" onClose={onClose}>
@@ -75,20 +80,21 @@ function AddAccountModal({ onClose, onAdd }) {
           <div className="form-group">
             <label className="form-label">CURRENCY</label>
             <select className="form-input" value={currency} onChange={e=>setCurrency(e.target.value)}>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-              <option value="INR">INR</option>
-              <option value="JPY">JPY</option>
-              <option value="AUD">AUD</option>
-              <option value="CAD">CAD</option>
+              {CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}
             </select>
           </div>
         </div>
         <div className="form-group">
-          <label className="form-label">INITIAL BALANCE</label>
+          <label className="form-label">{type === 'credit' ? 'AMOUNT OWED' : 'INITIAL BALANCE'}</label>
           <input className="form-input" type="number" step="0.01" value={bal} onChange={e=>setBal(e.target.value)} placeholder="0.00"/>
+          {type === 'credit' && <div className="form-note">Credit cards store debt as a positive balance.</div>}
         </div>
+        {type === 'credit' && (
+          <div className="form-group">
+            <label className="form-label">CREDIT LIMIT</label>
+            <input className="form-input" type="number" step="0.01" min="0" value={limit} onChange={e=>setLimit(e.target.value)} placeholder="optional"/>
+          </div>
+        )}
         <div style={{display:'flex',gap:'0.5rem',justifyContent:'flex-end',marginTop:'0.25rem'}}>
           <button type="button" className="btn-sec" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn-pri">Add Account</button>
@@ -104,7 +110,7 @@ function EditAccountsModal({ accounts, onClose, onUpdate, onDelete, onArchive })
   const [draft,   setDraft]   = useState({});
 
   const startEdit = acc => { setEditing(acc.id); setDraft({...acc}); };
-  const save = () => { onUpdate(draft); setEditing(null); };
+  const save = async () => { if (await onUpdate(draft)) setEditing(null); };
 
   return (
     <SbModal title="Edit Accounts" onClose={onClose}>
@@ -119,13 +125,7 @@ function EditAccountsModal({ accounts, onClose, onUpdate, onDelete, onArchive })
                   {ACCOUNT_TYPES.map(t=><option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
                 </select>
                 <select className="form-input" style={{fontSize:'0.72rem',flex:1}} value={draft.currency || 'USD'} onChange={e=>setDraft({...draft,currency:e.target.value})}>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GBP">GBP</option>
-                  <option value="INR">INR</option>
-                  <option value="JPY">JPY</option>
-                  <option value="AUD">AUD</option>
-                  <option value="CAD">CAD</option>
+                  {CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
                 <input className="form-input" style={{fontSize:'0.72rem',width:90}} type="number" step="0.01" value={draft.balance} onChange={e=>setDraft({...draft,balance:parseFloat(e.target.value)||0})}/>
               </div>
@@ -160,15 +160,13 @@ function EditAccountsModal({ accounts, onClose, onUpdate, onDelete, onArchive })
 function AddTagModal({ tags, onClose, onAdd }) {
   const [name,   setName]   = useState('');
   const [color,  setColor]  = useState('#3b82f6');
-  const [parent, setParent] = useState('');
   const [err,    setErr]    = useState('');
 
-  const submit = e => {
+  const submit = async e => {
     e.preventDefault();
     if (!name.trim()) return setErr('Tag name is required.');
     if (tags.some(t=>t.name.toLowerCase()===name.trim().toLowerCase())) return setErr('Tag already exists.');
-    onAdd({ id: Date.now(), name: name.trim(), color, parent: parent||null });
-    onClose();
+    if (await onAdd({ name: name.trim(), color })) onClose();
   };
   return (
     <SbModal title="Add Tag" onClose={onClose}>
@@ -177,13 +175,6 @@ function AddTagModal({ tags, onClose, onAdd }) {
         <div className="form-group">
           <label className="form-label">TAG NAME *</label>
           <input className="form-input" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Food" autoFocus/>
-        </div>
-        <div className="form-group">
-          <label className="form-label">PARENT TAG (optional)</label>
-          <select className="form-input" value={parent} onChange={e=>setParent(e.target.value)}>
-            <option value="">— None —</option>
-            {tags.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}
-          </select>
         </div>
         <div className="form-group">
           <label className="form-label">COLOR</label>
@@ -214,7 +205,7 @@ function EditTagsModal({ tags, onClose, onUpdate, onDelete }) {
   const [draft,   setDraft]   = useState({});
 
   const startEdit = tag => { setEditing(tag.id); setDraft({...tag}); };
-  const save = () => { onUpdate(draft); setEditing(null); };
+  const save = async () => { if (await onUpdate(draft)) setEditing(null); };
 
   return (
     <SbModal title="Edit Tags" onClose={onClose}>
@@ -252,16 +243,15 @@ function AddIOUModal({ onClose, onAdd }) {
   const [amount, setAmount] = useState('');
   const [dir,    setDir]    = useState('owe_me');
   const [note,   setNote]   = useState('');
-  const [date,   setDate]   = useState(new Date().toISOString().slice(0,10));
+  const [date,   setDate]   = useState(todayISO());
   const [err,    setErr]    = useState('');
 
-  const submit = e => {
+  const submit = async e => {
     e.preventDefault();
     if (!person.trim()) return setErr('Person name is required.');
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return setErr('Enter a valid amount.');
-    onAdd({ id: Date.now(), person: person.trim(), amount: dir==='i_owe'?-amt:amt, direction: dir, note: note.trim()||'IOU', date: new Date(date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) });
-    onClose();
+    if (await onAdd({ person: person.trim(), amount: amt, direction: dir, note: note.trim()||'IOU', date })) onClose();
   };
   return (
     <SbModal title="Add IOU" onClose={onClose}>
@@ -302,24 +292,24 @@ function AddIOUModal({ onClose, onAdd }) {
 }
 
 /* ──── Add Repeat Modal ──── */
-function AddRepeatModal({ tags, onClose, onAdd }) {
+function AddRepeatModal({ tags, accounts, onClose, onAdd }) {
   const [desc,  setDesc]  = useState('');
   const [amt,   setAmt]   = useState('');
   const [type,  setType]  = useState('expense');
   const [freq,  setFreq]  = useState('Monthly');
-  const [next,  setNext]  = useState(new Date().toISOString().slice(0,10));
+  const [next,  setNext]  = useState(todayISO());
   const [selTags, setSelTags] = useState([]);
+  const [accId, setAccId] = useState(accounts[0]?.id ?? '');
   const [err,   setErr]   = useState('');
 
-  const submit = e => {
+  const submit = async e => {
     e.preventDefault();
     if (!desc.trim()) return setErr('Description is required.');
     const a = parseFloat(amt);
     if (!a || a <= 0) return setErr('Enter a valid amount.');
+    if (!accId) return setErr('Choose an account.');
     const finalAmt = type==='expense' ? -a : a;
-    const nextFmt = new Date(next).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
-    onAdd({ id: Date.now(), description: desc.trim(), amount: finalAmt, frequency: freq, nextDate: nextFmt, tags: selTags });
-    onClose();
+    if (await onAdd({ description: desc.trim(), amount: finalAmt, frequency: freq, nextDate: next, tags: selTags, accountId: Number(accId) })) onClose();
   };
   const toggleTag = name => setSelTags(prev => prev.includes(name)?prev.filter(t=>t!==name):[...prev,name]);
 
@@ -343,9 +333,15 @@ function AddRepeatModal({ tags, onClose, onAdd }) {
           <div className="form-group">
             <label className="form-label">FREQUENCY</label>
             <select className="form-input" value={freq} onChange={e=>setFreq(e.target.value)}>
-              {IOU_FREQS.map(f=><option key={f}>{f}</option>)}
+              {REPEAT_FREQS.map(f=><option key={f}>{f}</option>)}
             </select>
           </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">ACCOUNT</label>
+          <select className="form-input" value={accId} onChange={e=>setAccId(e.target.value)}>
+            {accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
         </div>
         <div className="form-group">
           <label className="form-label">NEXT DATE</label>
@@ -373,31 +369,14 @@ function AddRepeatModal({ tags, onClose, onAdd }) {
 }
 
 /* ──── Main LeftSidebar ──── */
-function LeftSidebar({ accounts: initAccounts, archivedAccounts: initArchived, netWorth: initNW, tags: initTags, ious: initIous, repeats: initRepeats, favorites, onSignOut, onNavigate }) {
+function LeftSidebar({ appData, actions, onSignOut, onNavigate }) {
   const [activeTab, setActiveTab] = useState('accounts');
   const [showArchived, setShowArchived] = useState(false);
 
-  // Local state for CRUD
-  const [accounts, setAccounts]     = useState(initAccounts);
-  const [archived, setArchived]     = useState(initArchived);
-  const [tags,     setTags]         = useState(initTags);
-  const [ious,     setIous]         = useState(initIous);
-  const [repeats,  setRepeats]      = useState(initRepeats);
-
-  // Multi-currency net worth: group accounts by currency, sum assets - credit debt per group
-  const netWorthByCurrency = (() => {
-    const map = {};
-    accounts.forEach(a => {
-      const cur = a.currency || 'USD';
-      if (!map[cur]) map[cur] = 0;
-      map[cur] += a.type === 'credit' ? -a.balance : a.balance;
-    });
-    return Object.entries(map); // [[currency, value], ...]
-  })();
+  const { accounts, archivedAccounts: archived, tags, ious, repeats, favorites, netWorthByCurrency } = appData;
   const isMultiCurrency = netWorthByCurrency.length > 1;
-  // For single-currency mode: backwards-compat
-  const netWorth = accounts.reduce((s,a)=>s + (a.type === 'credit' ? -a.balance : a.balance), 0);
-  const baseCurrency = accounts?.[0]?.currency || 'USD';
+  const netWorth = netWorthByCurrency[0]?.[1] ?? 0;
+  const baseCurrency = netWorthByCurrency[0]?.[0] ?? 'USD';
 
   // Modal visibility
   const [showAddAcc,  setShowAddAcc]  = useState(false);
@@ -407,27 +386,15 @@ function LeftSidebar({ accounts: initAccounts, archivedAccounts: initArchived, n
   const [showAddIOU,  setShowAddIOU]  = useState(false);
   const [showAddRep,  setShowAddRep]  = useState(false);
 
-  // ── Account handlers ─────────────────────────────
-  const addAccount    = acc => setAccounts(prev=>[...prev,acc]);
-  const updateAccount = upd => setAccounts(prev=>prev.map(a=>a.id===upd.id?upd:a));
-  const deleteAccount = id  => setAccounts(prev=>prev.filter(a=>a.id!==id));
-  const archiveAccount= id  => {
-    const acc = accounts.find(a=>a.id===id);
-    if (acc) { setAccounts(prev=>prev.filter(a=>a.id!==id)); setArchived(prev=>[...prev,acc]); }
+  // ── Handlers (all persistence lives in lib/actions.js) ──
+  const deleteAccount = id => {
+    const acc = [...accounts, ...archived].find(a => a.id === id);
+    if (window.confirm(`Delete account "${acc?.name}"? This cannot be undone.`)) return actions.deleteAccount(id);
   };
-
-  // ── Tag handlers ─────────────────────────────────
-  const addTag    = tag => setTags(prev=>[...prev,tag]);
-  const updateTag = upd => setTags(prev=>prev.map(t=>t.id===upd.id?upd:t));
-  const deleteTag = id  => setTags(prev=>prev.filter(t=>t.id!==id));
-
-  // ── IOU handlers ─────────────────────────────────
-  const addIOU    = iou => setIous(prev=>[...prev,iou]);
-  const settleIOU = id  => setIous(prev=>prev.filter(i=>i.id!==id));
-
-  // ── Repeat handlers ──────────────────────────────
-  const addRepeat    = r => setRepeats(prev=>[...prev,r]);
-  const deleteRepeat = id=> setRepeats(prev=>prev.filter(r=>r.id!==id));
+  const deleteTag = id => {
+    const tag = tags.find(t => t.id === id);
+    if (window.confirm(`Delete tag "${tag?.name}"? It will be removed from its transactions, budgets and rules.`)) return actions.deleteTag(id);
+  };
 
   return (
     <>
@@ -521,7 +488,7 @@ function LeftSidebar({ accounts: initAccounts, archivedAccounts: initArchived, n
                 </div>
                 <div className="sb-card-sub" style={{display:'flex',justifyContent:'space-between'}}>
                   <span>{r.frequency} · Next {r.nextDate}</span>
-                  <button className="icon-btn" style={{color:'var(--red)',padding:0}} onClick={()=>deleteRepeat(r.id)} title="Delete"><Trash2 size={11}/></button>
+                  <button className="icon-btn" style={{color:'var(--red)',padding:0}} onClick={()=>actions.deleteRepeat(r.id)} title="Delete"><Trash2 size={11}/></button>
                 </div>
               </div>
             ))}
@@ -566,7 +533,7 @@ function LeftSidebar({ accounts: initAccounts, archivedAccounts: initArchived, n
                 </div>
                 <div className="sb-card-sub" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <span>{iou.note} · {iou.date}</span>
-                  <button className="settle-btn" onClick={()=>settleIOU(iou.id)} title="Mark settled">Settle</button>
+                  <button className="settle-btn" onClick={()=>actions.settleIOU(iou.id)} title="Mark settled">Settle</button>
                 </div>
               </div>
             ))}
@@ -623,12 +590,12 @@ function LeftSidebar({ accounts: initAccounts, archivedAccounts: initArchived, n
     </aside>
 
     {/* ── Modals ── */}
-    {showAddAcc  && <AddAccountModal onClose={()=>setShowAddAcc(false)} onAdd={addAccount}/>}
-    {showEditAcc && <EditAccountsModal accounts={accounts} onClose={()=>setShowEditAcc(false)} onUpdate={updateAccount} onDelete={deleteAccount} onArchive={archiveAccount}/>}
-    {showAddTag  && <AddTagModal tags={tags} onClose={()=>setShowAddTag(false)} onAdd={addTag}/>}
-    {showEditTag && <EditTagsModal tags={tags} onClose={()=>setShowEditTag(false)} onUpdate={updateTag} onDelete={deleteTag}/>}
-    {showAddIOU  && <AddIOUModal onClose={()=>setShowAddIOU(false)} onAdd={addIOU}/>}
-    {showAddRep  && <AddRepeatModal tags={tags} onClose={()=>setShowAddRep(false)} onAdd={addRepeat}/>}
+    {showAddAcc  && <AddAccountModal onClose={()=>setShowAddAcc(false)} onAdd={actions.addAccount}/>}
+    {showEditAcc && <EditAccountsModal accounts={accounts} onClose={()=>setShowEditAcc(false)} onUpdate={actions.updateAccount} onDelete={deleteAccount} onArchive={actions.archiveAccount}/>}
+    {showAddTag  && <AddTagModal tags={tags} onClose={()=>setShowAddTag(false)} onAdd={actions.addTag}/>}
+    {showEditTag && <EditTagsModal tags={tags} onClose={()=>setShowEditTag(false)} onUpdate={actions.updateTag} onDelete={deleteTag}/>}
+    {showAddIOU  && <AddIOUModal onClose={()=>setShowAddIOU(false)} onAdd={actions.addIOU}/>}
+    {showAddRep  && <AddRepeatModal tags={tags} accounts={accounts} onClose={()=>setShowAddRep(false)} onAdd={actions.addRepeat}/>}
     </>
   );
 }

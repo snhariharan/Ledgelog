@@ -1,22 +1,17 @@
 /**
- * db.js — Supabase database service layer
- * All reads/writes to the Expense Tracker database go through these functions.
+ * db.js — Supabase database service layer.
+ * All reads/writes go through these functions; every function throws a
+ * readable Error on failure. Account balances are maintained by a database
+ * trigger (see supabase/05_hardening.sql), not by this layer.
  */
 import { supabase } from './supabase';
+import { formatDisplayDate } from '../helpers';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Throw a readable error from a Supabase response */
 function assertOk({ error }, context = '') {
   if (error) throw new Error(`[db/${context}] ${error.message}`);
 }
 
-/** Format a JS Date or ISO string → 'DD Mon YYYY' for the UI */
-function formatDisplayDate(d) {
-  return new Date(d).toLocaleDateString('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric',
-  });
-}
+const PAGE = 1000; // Supabase's default max rows per request
 
 // ─── ACCOUNTS ────────────────────────────────────────────────────────────────
 
@@ -27,47 +22,25 @@ export async function fetchAccounts(userId) {
     .eq('user_id', userId)
     .order('sort_order')
     .order('created_at');
-
   assertOk({ error }, 'fetchAccounts');
-  // Normalise: expose credit_limit as `limit` to match the UI prop name
   return (data ?? []).map(a => ({
     ...a,
-    currency:    a.currency    ?? 'USD',
-    limit:       a.credit_limit ?? null,  // rename for UI
+    balance:  Number(a.balance),
+    currency: a.currency ?? 'USD',
+    limit:    a.credit_limit ?? null,
   }));
 }
 
 export async function addAccount(userId, { name, institution, type, balance, currency = 'USD', limit = null }) {
   const { data, error } = await supabase
     .from('accounts')
-    .insert({
-      user_id:      userId,
-      name,
-      institution,
-      type,
-      balance:      balance ?? 0,
-      currency,
-      credit_limit: limit ?? null,
-    })
+    .insert({ user_id: userId, name, institution, type, balance: balance ?? 0, currency, credit_limit: limit ?? null })
     .select()
     .single();
-
   assertOk({ error }, 'addAccount');
-  return { ...data, limit: data.credit_limit ?? null };
+  return data.id;
 }
 
-export async function updateAccountBalance(accountId, balance) {
-  const { error } = await supabase
-    .from('accounts')
-    .update({ balance })
-    .eq('id', accountId);
-
-  assertOk({ error }, 'updateAccountBalance');
-}
-
-/**
- * Full account update — name, institution, type, balance, currency, credit_limit.
- */
 export async function updateAccount(accountId, { name, institution, type, balance, currency, limit }) {
   const patch = {};
   if (name        !== undefined) patch.name         = name;
@@ -76,22 +49,18 @@ export async function updateAccount(accountId, { name, institution, type, balanc
   if (balance     !== undefined) patch.balance      = balance;
   if (currency    !== undefined) patch.currency     = currency;
   if (limit       !== undefined) patch.credit_limit = limit;
-
-  const { error } = await supabase
-    .from('accounts')
-    .update(patch)
-    .eq('id', accountId);
-
+  const { error } = await supabase.from('accounts').update(patch).eq('id', accountId);
   assertOk({ error }, 'updateAccount');
 }
 
 export async function archiveAccount(accountId, isArchived = true) {
-  const { error } = await supabase
-    .from('accounts')
-    .update({ is_archived: isArchived })
-    .eq('id', accountId);
-
+  const { error } = await supabase.from('accounts').update({ is_archived: isArchived }).eq('id', accountId);
   assertOk({ error }, 'archiveAccount');
+}
+
+export async function deleteAccount(accountId) {
+  const { error } = await supabase.from('accounts').delete().eq('id', accountId);
+  assertOk({ error }, 'deleteAccount');
 }
 
 // ─── TAGS ─────────────────────────────────────────────────────────────────────
@@ -103,9 +72,8 @@ export async function fetchTags(userId) {
     .eq('user_id', userId)
     .order('sort_order')
     .order('name');
-
   assertOk({ error }, 'fetchTags');
-  return data;
+  return data ?? [];
 }
 
 export async function addTag(userId, { name, color }) {
@@ -114,246 +82,165 @@ export async function addTag(userId, { name, color }) {
     .insert({ user_id: userId, name, color: color ?? '#94a3b8' })
     .select()
     .single();
-
   assertOk({ error }, 'addTag');
   return data;
 }
 
-export async function deleteTag(tagId) {
-  const { error } = await supabase
-    .from('tags')
-    .delete()
-    .eq('id', tagId);
+export async function updateTag(tagId, { name, color }) {
+  const { error } = await supabase.from('tags').update({ name, color }).eq('id', tagId);
+  assertOk({ error }, 'updateTag');
+}
 
+export async function deleteTag(tagId) {
+  const { error } = await supabase.from('tags').delete().eq('id', tagId);
   assertOk({ error }, 'deleteTag');
 }
 
 // ─── TRANSACTIONS ─────────────────────────────────────────────────────────────
 
-/**
- * Fetch all transactions for a user with their tags and account name.
- * Returns them in the flat format the UI components expect.
- */
+const TX_SELECT = `
+  id, amount, description, date, is_deleted, notes, tx_type, transfer_group_id,
+  account:accounts ( id, name, currency ),
+  tags:transaction_tags ( tag:tags ( id, name, color ) )
+`;
+
+const mapTx = tx => {
+  const tags = (tx.tags ?? []).map(t => t.tag).filter(Boolean);
+  return {
+    id:              tx.id,
+    date:            formatDisplayDate(tx.date),
+    rawDate:         tx.date,
+    amount:          Number(tx.amount),
+    description:     tx.description,
+    notes:           tx.notes ?? '',
+    tags:            tags.map(t => t.name),
+    tagIds:          tags.map(t => t.id),
+    account:         tx.account?.name ?? 'Unknown',
+    accountId:       tx.account?.id ?? null,
+    currency:        tx.account?.currency ?? 'USD',
+    deleted:         tx.is_deleted,
+    untagged:        tags.length === 0,
+    type:            tx.tx_type,
+    transferGroupId: tx.transfer_group_id ?? null,
+  };
+};
+
+/** Fetch ALL transactions, paging past Supabase's 1000-row response cap. */
 export async function fetchTransactions(userId) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select(TX_SELECT)
+      .eq('user_id', userId)
+      .order('date', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + PAGE - 1);
+    assertOk({ error }, 'fetchTransactions');
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE) break;
+  }
+  return rows.map(mapTx);
+}
+
+/**
+ * Insert many transactions (with tags) in two round-trips.
+ * @param rows [{accountId, amount, description, date, tagIds, notes, type, transferGroupId}]
+ * @returns inserted ids, in input order
+ */
+export async function addTransactions(userId, rows) {
+  if (!rows.length) return [];
   const { data, error } = await supabase
     .from('transactions')
-    .select(`
-      id,
-      amount,
-      description,
-      date,
-      is_deleted,
-      is_untagged,
-      notes,
-      account:accounts ( id, name, currency ),
-      tags:transaction_tags (
-        tag:tags ( id, name, color )
-      )
-    `)
-    .eq('user_id', userId)
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false });
+    .insert(rows.map(r => ({
+      user_id:           userId,
+      account_id:        r.accountId ?? null,
+      amount:            r.amount,
+      description:       r.description,
+      date:              r.date,
+      notes:             r.notes ?? '',
+      tx_type:           r.type ?? (r.amount < 0 ? 'expense' : 'income'),
+      transfer_group_id: r.transferGroupId ?? null,
+      is_untagged:       !(r.tagIds?.length),
+    })))
+    .select('id');
+  assertOk({ error }, 'addTransactions');
 
-  assertOk({ error }, 'fetchTransactions');
-
-  // Transform nested Supabase structure -> flat shape the UI expects
-  return (data ?? []).map(tx => ({
-    id:          tx.id,
-    date:        formatDisplayDate(tx.date),
-    rawDate:     tx.date,
-    amount:      Number(tx.amount),
-    description: tx.description,
-    notes:       tx.notes ?? '',
-    tags:        (tx.tags ?? []).map(t => t.tag?.name).filter(Boolean),
-    tagIds:      (tx.tags ?? []).map(t => t.tag?.id).filter(Boolean),
-    account:     tx.account?.name     ?? 'Unknown',
-    accountId:   tx.account?.id       ?? null,
-    currency:    tx.account?.currency ?? 'USD',   // <-- per-account currency
-    deleted:     tx.is_deleted,
-    untagged:    tx.is_untagged,
-  }));
-}
-
-/**
- * Add a new transaction with optional tags.
- * @param {string} userId
- * @param {{ accountId, amount, description, date, tagIds, notes }} payload
- */
-export async function addTransaction(userId, { accountId, amount, description, date, tagIds = [], notes = '' }) {
-  // 1. Insert the transaction row
-  const { data: tx, error: txErr } = await supabase
-    .from('transactions')
-    .insert({
-      user_id:    userId,
-      account_id: accountId ?? null,
-      amount,
-      description,
-      date,
-      notes,
-      is_untagged: tagIds.length === 0,
-    })
-    .select('id')
-    .single();
-
-  assertOk({ error: txErr }, 'addTransaction');
-
-  // 2. Insert junction rows for each tag
-  if (tagIds.length > 0) {
-    const { error: tagErr } = await supabase
-      .from('transaction_tags')
-      .insert(tagIds.map(tag_id => ({ transaction_id: tx.id, tag_id })));
-
-    assertOk({ error: tagErr }, 'addTransaction/tags');
+  const junction = [];
+  data.forEach((row, i) => (rows[i].tagIds ?? []).forEach(tag_id => junction.push({ transaction_id: row.id, tag_id })));
+  if (junction.length) {
+    const { error: tagErr } = await supabase.from('transaction_tags').insert(junction);
+    assertOk({ error: tagErr }, 'addTransactions/tags');
   }
-
-  return tx.id;
+  return data.map(r => r.id);
 }
 
-/**
- * Soft-delete a transaction (sets is_deleted = true).
- */
-export async function deleteTransaction(transactionId) {
-  const { error } = await supabase
-    .from('transactions')
-    .update({ is_deleted: true })
-    .eq('id', transactionId);
-
-  assertOk({ error }, 'deleteTransaction');
+export async function setTransactionsDeleted(ids, isDeleted) {
+  if (!ids.length) return;
+  const { error } = await supabase.from('transactions').update({ is_deleted: isDeleted }).in('id', ids);
+  assertOk({ error }, 'setTransactionsDeleted');
 }
 
-/**
- * Permanently delete a transaction (use for already-deleted rows).
- */
-export async function permanentlyDeleteTransaction(transactionId) {
-  const { error } = await supabase
-    .from('transactions')
-    .delete()
-    .eq('id', transactionId);
-
-  assertOk({ error }, 'permanentlyDeleteTransaction');
+export async function permanentlyDeleteTransactions(ids) {
+  if (!ids.length) return;
+  const { error } = await supabase.from('transactions').delete().in('id', ids);
+  assertOk({ error }, 'permanentlyDeleteTransactions');
 }
 
-/**
- * Update a transaction's core fields.
- */
-export async function updateTransaction(transactionId, updates) {
-  const { error } = await supabase
-    .from('transactions')
-    .update(updates)
-    .eq('id', transactionId);
+/** Update core fields; pass tagIds to also replace the tag set. */
+export async function updateTransaction(transactionId, { accountId, amount, description, date, notes, type, tagIds }) {
+  const patch = {};
+  if (accountId   !== undefined) patch.account_id  = accountId;
+  if (amount      !== undefined) patch.amount      = amount;
+  if (description !== undefined) patch.description = description;
+  if (date        !== undefined) patch.date        = date;
+  if (notes       !== undefined) patch.notes       = notes;
+  if (type        !== undefined) patch.tx_type     = type;
+  if (tagIds      !== undefined) patch.is_untagged = tagIds.length === 0;
 
+  const { error } = await supabase.from('transactions').update(patch).eq('id', transactionId);
   assertOk({ error }, 'updateTransaction');
+  if (tagIds !== undefined) await updateTransactionTags(transactionId, tagIds);
 }
 
-/**
- * Replace all tags on a transaction.
- */
 export async function updateTransactionTags(transactionId, tagIds = []) {
-  // Delete existing junction rows
-  const { error: delErr } = await supabase
-    .from('transaction_tags')
-    .delete()
-    .eq('transaction_id', transactionId);
+  const { error: delErr } = await supabase.from('transaction_tags').delete().eq('transaction_id', transactionId);
   assertOk({ error: delErr }, 'updateTransactionTags/delete');
-
-  // Insert new ones
-  if (tagIds.length > 0) {
+  if (tagIds.length) {
     const { error: insErr } = await supabase
       .from('transaction_tags')
       .insert(tagIds.map(tag_id => ({ transaction_id: transactionId, tag_id })));
     assertOk({ error: insErr }, 'updateTransactionTags/insert');
   }
-
-  // Update is_untagged flag
-  await updateTransaction(transactionId, { is_untagged: tagIds.length === 0 });
 }
 
 // ─── BUDGETS ─────────────────────────────────────────────────────────────────
 
-/**
- * Fetch budget status using the v_budget_status view
- * (includes current-month spending computed server-side).
- */
-export async function fetchBudgetStatus(userId) {
+export async function fetchBudgets(userId) {
   const { data, error } = await supabase
-    .from('v_budget_status')
-    .select('budget_id, tag_id, tag_name, color, monthly_limit, spent, available, pct_used')
+    .from('budgets')
+    .select('id, tag_id, monthly_limit, color, tag:tags ( name, color )')
     .eq('user_id', userId);
-
-  assertOk({ error }, 'fetchBudgetStatus');
-
+  assertOk({ error }, 'fetchBudgets');
   return (data ?? []).map(b => ({
-    id:        b.budget_id,
-    tagId:     b.tag_id,
-    tag:       b.tag_name,
-    color:     b.color,
-    limit:     Number(b.monthly_limit),
-    spent:     Number(b.spent),
-    available: Number(b.available),
-    pctUsed:   Number(b.pct_used),
+    id:           b.id,
+    tagId:        b.tag_id,
+    tag:          b.tag?.name ?? '?',
+    color:        b.color ?? b.tag?.color ?? '#94a3b8',
+    monthlyLimit: Number(b.monthly_limit),
   }));
 }
 
 export async function upsertBudget(userId, tagId, monthlyLimit, color) {
   const { error } = await supabase
     .from('budgets')
-    .upsert(
-      { user_id: userId, tag_id: tagId, monthly_limit: monthlyLimit, color },
-      { onConflict: 'user_id,tag_id' }
-    );
-
+    .upsert({ user_id: userId, tag_id: tagId, monthly_limit: monthlyLimit, color }, { onConflict: 'user_id,tag_id' });
   assertOk({ error }, 'upsertBudget');
 }
 
 export async function deleteBudget(budgetId) {
-  const { error } = await supabase
-    .from('budgets')
-    .delete()
-    .eq('id', budgetId);
-
+  const { error } = await supabase.from('budgets').delete().eq('id', budgetId);
   assertOk({ error }, 'deleteBudget');
-}
-
-// ─── EXPENSE SUMMARY (donut chart data) ──────────────────────────────────────
-
-/**
- * Fetch expense totals by tag for the current calendar month.
- * Uses the v_expense_by_tag_current_month view.
- */
-export async function fetchExpenseByTag(userId) {
-  const { data, error } = await supabase
-    .from('v_expense_by_tag_current_month')
-    .select('tag_id, tag_name, tag_color, total_amount, transaction_count')
-    .eq('user_id', userId);
-
-  assertOk({ error }, 'fetchExpenseByTag');
-
-  return (data ?? []).map((row, i) => ({
-    id:     row.tag_id ?? i,
-    name:   row.tag_name,
-    color:  row.tag_color,
-    amount: Number(row.total_amount),
-    count:  Number(row.transaction_count),
-  }));
-}
-
-// ─── MONTHLY SUMMARY ─────────────────────────────────────────────────────────
-
-export async function fetchMonthlySummary(userId) {
-  const { data, error } = await supabase
-    .from('v_monthly_summary')
-    .select('month, income, expense, net')
-    .eq('user_id', userId)
-    .limit(12);
-
-  assertOk({ error }, 'fetchMonthlySummary');
-
-  return (data ?? []).map(r => ({
-    month:   r.month,
-    income:  Number(r.income),
-    expense: Number(r.expense),
-    net:     Number(r.net),
-  }));
 }
 
 // ─── IOUs ─────────────────────────────────────────────────────────────────────
@@ -365,13 +252,12 @@ export async function fetchIOUs(userId) {
     .eq('user_id', userId)
     .eq('is_settled', false)
     .order('date', { ascending: false });
-
   assertOk({ error }, 'fetchIOUs');
-
+  // UI convention: positive = they owe me, negative = I owe them
   return (data ?? []).map(r => ({
     id:        r.id,
     person:    r.person_name,
-    amount:    Number(r.amount),
+    amount:    r.direction === 'i_owe' ? -Number(r.amount) : Number(r.amount),
     direction: r.direction,
     note:      r.note,
     date:      formatDisplayDate(r.date),
@@ -379,22 +265,14 @@ export async function fetchIOUs(userId) {
 }
 
 export async function addIOU(userId, { personName, amount, direction, note, date }) {
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('ious')
-    .insert({ user_id: userId, person_name: personName, amount, direction, note, date })
-    .select('id')
-    .single();
-
+    .insert({ user_id: userId, person_name: personName, amount: Math.abs(amount), direction, note, date });
   assertOk({ error }, 'addIOU');
-  return data.id;
 }
 
 export async function settleIOU(iouId) {
-  const { error } = await supabase
-    .from('ious')
-    .update({ is_settled: true })
-    .eq('id', iouId);
-
+  const { error } = await supabase.from('ious').update({ is_settled: true }).eq('id', iouId);
   assertOk({ error }, 'settleIOU');
 }
 
@@ -404,32 +282,57 @@ export async function fetchRepeatingTransactions(userId) {
   const { data, error } = await supabase
     .from('repeating_transactions')
     .select(`
-      id,
-      description,
-      amount,
-      frequency,
-      next_date,
-      is_active,
-      account:accounts ( name ),
-      tags:repeating_transaction_tags (
-        tag:tags ( id, name, color )
-      )
+      id, description, amount, frequency, next_date, is_active,
+      account:accounts ( id, name ),
+      tags:repeating_transaction_tags ( tag:tags ( id, name, color ) )
     `)
     .eq('user_id', userId)
     .eq('is_active', true)
     .order('next_date');
-
   assertOk({ error }, 'fetchRepeatingTransactions');
-
   return (data ?? []).map(r => ({
     id:          r.id,
     description: r.description,
     amount:      Number(r.amount),
     frequency:   r.frequency,
     nextDate:    formatDisplayDate(r.next_date),
+    nextDateISO: r.next_date,
     account:     r.account?.name ?? 'Unknown',
+    accountId:   r.account?.id ?? null,
     tags:        (r.tags ?? []).map(t => t.tag?.name).filter(Boolean),
   }));
+}
+
+export async function addRepeat(userId, { accountId, description, amount, frequency, nextDate, tagIds = [] }) {
+  const { data, error } = await supabase
+    .from('repeating_transactions')
+    .insert({ user_id: userId, account_id: accountId ?? null, description, amount, frequency, next_date: nextDate })
+    .select('id')
+    .single();
+  assertOk({ error }, 'addRepeat');
+  if (tagIds.length) {
+    const { error: tagErr } = await supabase
+      .from('repeating_transaction_tags')
+      .insert(tagIds.map(tag_id => ({ repeating_transaction_id: data.id, tag_id })));
+    assertOk({ error: tagErr }, 'addRepeat/tags');
+  }
+}
+
+/** Advance a schedule only if nobody else already did (guards against double-runs). */
+export async function advanceRepeat(id, fromDate, toDate) {
+  const { data, error } = await supabase
+    .from('repeating_transactions')
+    .update({ next_date: toDate })
+    .eq('id', id)
+    .eq('next_date', fromDate)
+    .select('id');
+  assertOk({ error }, 'advanceRepeat');
+  return (data ?? []).length > 0;
+}
+
+export async function deleteRepeat(id) {
+  const { error } = await supabase.from('repeating_transactions').delete().eq('id', id);
+  assertOk({ error }, 'deleteRepeat');
 }
 
 // ─── FAVORITES ────────────────────────────────────────────────────────────────
@@ -440,83 +343,89 @@ export async function fetchFavorites(userId) {
     .select('id, name, type, icon, config')
     .eq('user_id', userId)
     .order('sort_order');
-
   assertOk({ error }, 'fetchFavorites');
   return data ?? [];
 }
 
-export async function addFavorite(userId, { name, type, icon, config }) {
+// ─── RULES ────────────────────────────────────────────────────────────────────
+
+export async function fetchRules(userId) {
   const { data, error } = await supabase
-    .from('favorites')
-    .insert({ user_id: userId, name, type, icon, config })
-    .select('id')
-    .single();
-
-  assertOk({ error }, 'addFavorite');
-  return data.id;
+    .from('rules')
+    .select('id, name, match_text, tag_id, is_active, tag:tags ( name )')
+    .eq('user_id', userId)
+    .order('sort_order')
+    .order('id');
+  assertOk({ error }, 'fetchRules');
+  return (data ?? []).map(r => ({
+    id: r.id, name: r.name, matchText: r.match_text, tagId: r.tag_id, tagName: r.tag?.name ?? '?', active: r.is_active,
+  }));
 }
 
-export async function deleteFavorite(favoriteId) {
-  const { error } = await supabase
-    .from('favorites')
-    .delete()
-    .eq('id', favoriteId);
-
-  assertOk({ error }, 'deleteFavorite');
+export async function addRule(userId, { name, matchText, tagId }) {
+  const { error } = await supabase.from('rules').insert({ user_id: userId, name, match_text: matchText, tag_id: tagId });
+  assertOk({ error }, 'addRule');
 }
 
-// ─── LOAD ALL DASHBOARD DATA ──────────────────────────────────────────────────
+export async function setRuleActive(id, active) {
+  const { error } = await supabase.from('rules').update({ is_active: active }).eq('id', id);
+  assertOk({ error }, 'setRuleActive');
+}
+
+export async function deleteRule(id) {
+  const { error } = await supabase.from('rules').delete().eq('id', id);
+  assertOk({ error }, 'deleteRule');
+}
+
+// ─── HOLDINGS ─────────────────────────────────────────────────────────────────
+
+export async function fetchHoldings(userId) {
+  const { data, error } = await supabase
+    .from('holdings')
+    .select('id, name, ticker, kind, shares, price, cost, currency, color')
+    .eq('user_id', userId)
+    .order('id');
+  assertOk({ error }, 'fetchHoldings');
+  return (data ?? []).map(h => ({ ...h, shares: Number(h.shares), price: Number(h.price), cost: Number(h.cost) }));
+}
+
+export async function addHolding(userId, h) {
+  const { error } = await supabase.from('holdings').insert({ user_id: userId, ...h });
+  assertOk({ error }, 'addHolding');
+}
+
+export async function updateHolding(id, h) {
+  const { error } = await supabase.from('holdings').update(h).eq('id', id);
+  assertOk({ error }, 'updateHolding');
+}
+
+export async function deleteHolding(id) {
+  const { error } = await supabase.from('holdings').delete().eq('id', id);
+  assertOk({ error }, 'deleteHolding');
+}
+
+// ─── LOAD EVERYTHING ──────────────────────────────────────────────────────────
 
 /**
- * Single call to load everything the dashboard needs in parallel.
- * Returns an object with all data collections + computed values.
+ * Loads the raw data collections in parallel. Aggregates (summaries, budget
+ * spend, donut data) are derived client-side by lib/derive.js, so they follow
+ * the selected period and never double-count.
  */
 export async function loadAllData(userId) {
-  const [
-    accounts,
-    tags,
-    transactions,
-    budgets,
-    expensesData,
-    ious,
-    repeats,
-    favorites,
-    monthlySummary,
-  ] = await Promise.all([
+  const [accounts, tags, transactions, budgets, ious, repeats, favorites, rules, holdings] = await Promise.all([
     fetchAccounts(userId),
     fetchTags(userId),
     fetchTransactions(userId),
-    fetchBudgetStatus(userId),
-    fetchExpenseByTag(userId),
+    fetchBudgets(userId),
     fetchIOUs(userId),
     fetchRepeatingTransactions(userId),
     fetchFavorites(userId),
-    fetchMonthlySummary(userId),
+    fetchRules(userId),
+    fetchHoldings(userId),
   ]);
-
-  const activeAccounts   = accounts.filter(a => !a.is_archived);
-  const archivedAccounts = accounts.filter(a => a.is_archived);
-  const netWorth         = activeAccounts.reduce((s, a) => s + (a.type === 'credit' ? -a.balance : a.balance), 0);
-
-  // Current month summary from the view (first row = most recent month)
-  const currentMonthRow = monthlySummary[0] ?? { income: 0, expense: 0, net: 0 };
-  const summaryData = {
-    incomeThisMonth:  currentMonthRow.income,
-    expenseThisMonth: currentMonthRow.expense,
-  };
-
   return {
-    accounts:         activeAccounts,
-    archivedAccounts,
-    netWorth,
-    tags,
-    budgets,
-    transactions,
-    expensesData,
-    summaryData,
-    ious,
-    repeats,
-    favorites,
-    monthlySummary,
+    accounts:         accounts.filter(a => !a.is_archived),
+    archivedAccounts: accounts.filter(a => a.is_archived),
+    tags, transactions, budgets, ious, repeats, favorites, rules, holdings,
   };
 }

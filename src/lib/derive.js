@@ -1,0 +1,191 @@
+/**
+ * derive.js — pure functions that turn raw data (transactions, budgets, …)
+ * into everything the pages display. Works identically in demo and Supabase
+ * mode, and makes the period selector real.
+ */
+import { addMonthsISO, monthShort, parseISO, round2, toISODate } from '../helpers';
+
+const pad = n => String(n).padStart(2, '0');
+
+// ── Transaction classification ───────────────────────────────────────────────
+export const txKind = t => t.type || (t.amount < 0 ? 'expense' : 'income');
+export const isTransfer = t => { const k = txKind(t); return k === 'transfer_in' || k === 'transfer_out'; };
+/** Amount this transaction adds to spending (refunds reduce it); transfers ignored. */
+export const spendDelta = t => {
+  const k = txKind(t);
+  return k === 'expense' || k === 'refund' ? -t.amount : 0;
+};
+export const incomeDelta = t => (txKind(t) === 'income' ? t.amount : 0);
+
+// ── Periods ──────────────────────────────────────────────────────────────────
+const monthStart = (y, m) => `${y}-${pad(m + 1)}-01`;
+const monthEnd = (y, m) => toISODate(new Date(y, m + 1, 0));
+
+/** Inclusive ISO range for a period label, or null for "All Time". */
+export function periodRange(period, now = new Date()) {
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  switch (period) {
+    case 'This Month':    return { start: monthStart(y, m), end: monthEnd(y, m) };
+    case 'Last Month': {
+      const d = new Date(y, m - 1, 1);
+      return { start: monthStart(d.getFullYear(), d.getMonth()), end: monthEnd(d.getFullYear(), d.getMonth()) };
+    }
+    case 'Last 3 Months': {
+      const d = new Date(y, m - 2, 1);
+      return { start: monthStart(d.getFullYear(), d.getMonth()), end: monthEnd(y, m) };
+    }
+    case 'This Year':     return { start: `${y}-01-01`, end: `${y}-12-31` };
+    case 'Last Year':     return { start: `${y - 1}-01-01`, end: `${y - 1}-12-31` };
+    default:              return null;
+  }
+}
+
+/** The range immediately before the given period (for "top movers"). */
+export function previousRange(period, now = new Date()) {
+  const r = periodRange(period, now);
+  if (!r) return null;
+  const start = addMonthsISO(r.start, -monthsInRange(r));
+  const d = parseISO(r.start);
+  d.setDate(d.getDate() - 1);
+  return { start, end: toISODate(d) };
+}
+
+export function monthsInRange(range) {
+  if (!range) return 1;
+  const a = parseISO(range.start), b = parseISO(range.end);
+  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1;
+}
+
+export const inRange = (iso, range) => !range || (iso >= range.start && iso <= range.end);
+
+// ── Aggregations ─────────────────────────────────────────────────────────────
+export function summarize(txns) {
+  let income = 0, expense = 0;
+  for (const t of txns) { income += incomeDelta(t); expense -= spendDelta(t); }
+  return { income: round2(income), expense: round2(expense) };
+}
+
+/** Expense by tag → [{id,name,color,amount(negative)}] sorted largest first. */
+export function expenseByTag(txns, tags) {
+  const totals = new Map();
+  for (const t of txns) {
+    const d = spendDelta(t);
+    if (!d) continue;
+    const names = t.tags?.length ? t.tags : ['Untagged'];
+    for (const n of names) totals.set(n, (totals.get(n) || 0) + d);
+  }
+  const colorOf = new Map(tags.map(t => [t.name, t.color]));
+  const idOf = new Map(tags.map(t => [t.name, t.id]));
+  return [...totals.entries()]
+    .filter(([, v]) => v > 0)
+    .map(([name, v]) => ({ id: idOf.get(name) ?? name, name, color: colorOf.get(name) ?? '#94a3b8', amount: -round2(v) }))
+    .sort((a, b) => a.amount - b.amount);
+}
+
+export function incomeByTag(txns, tags) {
+  const totals = new Map();
+  for (const t of txns) {
+    const d = incomeDelta(t);
+    if (!d) continue;
+    const names = t.tags?.length ? t.tags : ['Untagged'];
+    for (const n of names) totals.set(n, (totals.get(n) || 0) + d);
+  }
+  const colorOf = new Map(tags.map(t => [t.name, t.color]));
+  return [...totals.entries()]
+    .map(([name, v], i) => ({ id: name + i, name, color: colorOf.get(name) ?? '#94a3b8', amount: round2(v) }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+/** Monthly budget limits scaled to the number of months in the period. */
+export function budgetStatus(budgets, byTag, range, txns) {
+  let months = monthsInRange(range);
+  if (!range && txns.length) {
+    const first = txns.reduce((m, t) => (t.rawDate < m ? t.rawDate : m), txns[0].rawDate);
+    const a = parseISO(first), now = new Date();
+    months = Math.max(1, (now.getFullYear() - a.getFullYear()) * 12 + now.getMonth() - a.getMonth() + 1);
+  }
+  const spentOf = new Map(byTag.map(e => [e.name, -e.amount]));
+  return budgets.map(b => ({ ...b, limit: round2(b.monthlyLimit * months), spent: spentOf.get(b.tag) ?? 0 }));
+}
+
+/** Last `n` calendar months of income/expense, oldest first. */
+export function monthlySeries(txns, n = 12, now = new Date()) {
+  const rows = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    rows.push({ key: `${d.getFullYear()}-${pad(d.getMonth() + 1)}`, label: monthShort(d.getMonth()), income: 0, expense: 0 });
+  }
+  const idx = new Map(rows.map((r, i) => [r.key, i]));
+  for (const t of txns) {
+    const i = idx.get(t.rawDate.slice(0, 7));
+    if (i === undefined) continue;
+    rows[i].income += incomeDelta(t);
+    rows[i].expense += spendDelta(t);
+  }
+  return rows.map(r => ({ ...r, income: round2(r.income), expense: round2(r.expense) }));
+}
+
+/** Cumulative expense per day for a month (`'YYYY-MM'`). */
+export function dailyCumulative(txns, ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const days = new Date(y, m, 0).getDate();
+  const perDay = Array(days).fill(0);
+  for (const t of txns) if (t.rawDate.slice(0, 7) === ym) perDay[Number(t.rawDate.slice(8, 10)) - 1] += spendDelta(t);
+  let run = 0;
+  return perDay.map(v => (run += v));
+}
+
+/** Tag-level change between two ranges → [{name,color,current,previous,delta}] */
+export function topMovers(current, previous, tags) {
+  const cur = new Map(expenseByTag(current, tags).map(e => [e.name, { v: -e.amount, color: e.color }]));
+  const prev = new Map(expenseByTag(previous, tags).map(e => [e.name, { v: -e.amount, color: e.color }]));
+  const names = new Set([...cur.keys(), ...prev.keys()]);
+  return [...names].map(name => {
+    const c = cur.get(name)?.v ?? 0, p = prev.get(name)?.v ?? 0;
+    return { name, color: (cur.get(name) ?? prev.get(name)).color, current: c, previous: p, delta: round2(c - p) };
+  }).filter(r => r.delta !== 0).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+}
+
+// ── Master derivation ────────────────────────────────────────────────────────
+/**
+ * Raw → view model. `raw.transactions` rows need `rawDate`, `amount`, `account`.
+ * Only transactions in the base currency (first account's) are aggregated so
+ * mixed-currency amounts are never added together.
+ */
+export function withDerived(raw, period, now = new Date()) {
+  const accounts = raw.accounts ?? [];
+  const curOf = new Map([...accounts, ...(raw.archivedAccounts ?? [])].map(a => [a.name, a.currency || 'USD']));
+  const transactions = raw.transactions.map(t => ({ ...t, currency: curOf.get(t.account) ?? t.currency ?? 'USD' }));
+  const baseCurrency = accounts[0]?.currency || 'USD';
+  const live = transactions.filter(t => !t.deleted);
+  const inBase = live.filter(t => t.currency === baseCurrency);
+  const range = periodRange(period, now);
+  const ranged = inBase.filter(t => inRange(t.rawDate, range));
+  const expensesData = expenseByTag(ranged, raw.tags);
+  const { income, expense } = summarize(ranged);
+  const currencies = new Set(accounts.map(a => a.currency || 'USD'));
+  return {
+    ...raw,
+    transactions,
+    baseCurrency,
+    multiCurrency: currencies.size > 1,
+    range,
+    rangedTransactions: ranged,
+    baseTransactions: inBase,
+    expensesData,
+    incomeData: incomeByTag(ranged, raw.tags),
+    summaryData: { income, expense },
+    budgets: budgetStatus(raw.budgets ?? [], expensesData, range, inBase),
+    netWorthByCurrency: netWorthByCurrency(accounts),
+  };
+}
+
+export function netWorthByCurrency(accounts) {
+  const map = {};
+  for (const a of accounts) {
+    const cur = a.currency || 'USD';
+    map[cur] = round2((map[cur] || 0) + (a.type === 'credit' ? -a.balance : a.balance));
+  }
+  return Object.entries(map);
+}

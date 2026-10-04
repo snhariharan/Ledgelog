@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { fmt } from '../helpers';
+import { incomeDelta, spendDelta } from '../lib/derive';
 
 function TagDetailPage({ tag, allTransactions, accounts = [], onBack }) {
-  const txns   = allTransactions.filter(t => t.tags?.includes(tag.name));
-  const income  = txns.filter(t => t.amount > 0).reduce((s,t) => s + t.amount, 0);
-  const expense = txns.filter(t => t.amount < 0).reduce((s,t) => s + Math.abs(t.amount), 0);
+  const txns   = allTransactions.filter(t => !t.deleted && t.tags?.includes(tag.name)).sort((a,b) => b.rawDate.localeCompare(a.rawDate));
+  const baseCur = accounts[0]?.currency || 'USD';
+  const curOf = t => accounts.find(a => a.name === t.account)?.currency || 'USD';
+  const sameCur = txns.filter(t => curOf(t) === baseCur);
+  const base = sameCur;
+  const income  = base.reduce((s,t) => s + incomeDelta(t), 0);
+  const expense = base.reduce((s,t) => s + spendDelta(t), 0);
   const [page, setPage] = useState(1);
   const PER = 15;
   const paged = txns.slice((page-1)*PER, page*PER);
@@ -13,13 +18,11 @@ function TagDetailPage({ tag, allTransactions, accounts = [], onBack }) {
 
   // Monthly bar data
   const months = {};
-  txns.forEach(t => {
-    const d = new Date(t.date);
-    if (isNaN(d)) return;
-    const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  base.forEach(t => {
+    const k = t.rawDate.slice(0, 7);
     if (!months[k]) months[k] = { income:0, expense:0 };
-    if (t.amount > 0) months[k].income += t.amount;
-    else months[k].expense += Math.abs(t.amount);
+    months[k].income += incomeDelta(t);
+    months[k].expense += spendDelta(t);
   });
   const bars = Object.entries(months).sort((a,b)=>a[0].localeCompare(b[0])).slice(-8);
   const maxBar = Math.max(...bars.flatMap(([,v])=>[v.income, v.expense]), 1);
@@ -37,17 +40,17 @@ function TagDetailPage({ tag, allTransactions, accounts = [], onBack }) {
       <div className="detail-kpi-row">
         <div className="detail-kpi">
           <div className="detail-kpi-label">EXPENSE</div>
-          <div className="detail-kpi-val" style={{color:'var(--red)'}}>-{fmt(expense)}</div>
+          <div className="detail-kpi-val" style={{color:'var(--red)'}}>-{fmt(expense, false, baseCur)}</div>
           <div className="detail-kpi-sub">ALL TIME</div>
         </div>
         <div className="detail-kpi">
           <div className="detail-kpi-label">INCOME</div>
-          <div className="detail-kpi-val" style={{color:'var(--green)'}}>+{fmt(income)}</div>
+          <div className="detail-kpi-val" style={{color:'var(--green)'}}>+{fmt(income, false, baseCur)}</div>
           <div className="detail-kpi-sub">ALL TIME</div>
         </div>
         <div className="detail-kpi">
           <div className="detail-kpi-label">AVG / MONTH</div>
-          <div className="detail-kpi-val" style={{color:'var(--red)'}}>-{fmt(avgPerMonth)}</div>
+          <div className="detail-kpi-val" style={{color:'var(--red)'}}>-{fmt(avgPerMonth, false, baseCur)}</div>
         </div>
         <div className="detail-kpi">
           <div className="detail-kpi-label">TRANSACTIONS</div>
@@ -63,8 +66,8 @@ function TagDetailPage({ tag, allTransactions, accounts = [], onBack }) {
               {bars.map(([mo, v]) => (
                 <div key={mo} className="tbc-col">
                   <div className="tbc-bars">
-                    <div className="tbc-bar income" style={{height:`${(v.income/maxBar)*100}%`,background:tag.color+'55'}} title={`+{fmt(v.income)}`}/>
-                    <div className="tbc-bar expense" style={{height:`${(v.expense/maxBar)*100}%`,background:tag.color}} title={`-{fmt(v.expense)}`}/>
+                    <div className="tbc-bar income" style={{height:`${(v.income/maxBar)*100}%`,background:tag.color+'55'}} title={`+${fmt(v.income, false, baseCur)}`}/>
+                    <div className="tbc-bar expense" style={{height:`${(v.expense/maxBar)*100}%`,background:tag.color}} title={`-${fmt(v.expense, false, baseCur)}`}/>
                   </div>
                   <div className="tbc-label">{mo.slice(5)}</div>
                 </div>

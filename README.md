@@ -1,16 +1,62 @@
-# React + Vite
+# Ledgelog
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A personal finance tracker: accounts, transactions, tags, budgets, recurring transactions, rules, IOUs,
+insights, a 6-month forecast, manual investment tracking and a retirement calculator.
 
-Currently, two official plugins are available:
+React 19 + Vite, with Supabase (Postgres + Auth + RLS) as the backend. With no Supabase
+credentials the app runs in **demo mode** on in-memory sample data.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Quick start
 
-## React Compiler
+```bash
+npm install
+npm run dev          # demo mode, nothing to configure
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### With Supabase
 
-## Expanding the ESLint configuration
+1. Create a Supabase project and run the SQL files in [`supabase/`](./supabase/README.md) **in order, 01 → 05**.
+2. `cp .env.example .env` and fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (the **anon** key — never the service-role key).
+3. `npm run dev`, sign up, and start adding accounts.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Scripts
+
+| Command | |
+|---|---|
+| `npm run dev` | Dev server |
+| `npm run build` | Production build |
+| `npm run lint` | ESLint |
+| `npm test` | Vitest (unit + UI smoke tests) |
+
+CI (`.github/workflows/ci.yml`) runs lint, tests and build on every push and PR.
+
+## How it's organised
+
+```
+src/
+  lib/
+    actions.js   every mutation, one interface, two backends (demo state / Supabase)
+    db.js        Supabase queries (paged, throws readable errors)
+    derive.js    pure: periods, summaries, budgets, trends  → the period selector is real
+    csv.js       RFC-4180 import/export + row validation
+    rules.js     auto-tag rules          repeats.js   recurring schedule maths
+  pages/         one file per screen        components/   shared UI
+  mockData.js    demo data (dates shift so "This Month" always has data)
+supabase/        schema, RLS, seed, migrations
+```
+
+Key design points:
+
+- **Account balances** are maintained by a database trigger in Supabase mode (and by `actions.js` in demo mode) — never recomputed ad hoc in the UI.
+- **Credit cards** store debt as a *positive* balance; spending raises it, and net worth subtracts it.
+- **Currencies are never added together.** Dashboard totals, charts and budgets use the first account's currency; other currencies are excluded and the UI says so. Net worth is shown per currency.
+- **Transfers** are two linked transactions (`transfer_group_id`) and are excluded from income/expense.
+- **Recurring transactions** are materialised when the app loads (guarded so two tabs can't both create them). There is no server-side scheduler.
+- **Investment prices are manual** — there is no market-data feed.
+
+## Known limitations
+
+- Money is handled as JS numbers rounded to 2 dp (the DB uses `NUMERIC(14,2)`); fine for personal use, not for ledgers needing exact sub-cent arithmetic.
+- No FX conversion.
+- Recurring transactions only run when someone opens the app.
+- `src/index.css` is a single large stylesheet and many components still use inline styles.

@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { ChevronLeft, Landmark } from 'lucide-react';
 import { fmt } from '../helpers';
+import { incomeDelta, spendDelta } from '../lib/derive';
 
 function AccountDetailPage({ account, allTransactions, onBack }) {
-  const txns = allTransactions.filter(t => t.account === account.name);
-  const income  = txns.filter(t => t.amount > 0).reduce((s,t) => s + t.amount, 0);
-  const expense = txns.filter(t => t.amount < 0).reduce((s,t) => s + Math.abs(t.amount), 0);
-  const [period, setPeriod] = useState('This Month');
+  const cur = account.currency || 'USD';
+  const txns = allTransactions.filter(t => !t.deleted && t.account === account.name).sort((a,b) => b.rawDate.localeCompare(a.rawDate));
+  const base = txns;
+  const income  = base.reduce((s,t) => s + incomeDelta(t), 0);
+  const expense = base.reduce((s,t) => s + spendDelta(t), 0);
   const [page, setPage]     = useState(1);
   const PER = 15;
   const paged = txns.slice((page-1)*PER, page*PER);
@@ -14,13 +16,11 @@ function AccountDetailPage({ account, allTransactions, onBack }) {
 
   // Build a simple monthly bar chart from transactions
   const months = {};
-  txns.forEach(t => {
-    const d = new Date(t.date);
-    if (isNaN(d)) return;
-    const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  base.forEach(t => {
+    const k = t.rawDate.slice(0, 7);
     if (!months[k]) months[k] = { income:0, expense:0 };
-    if (t.amount > 0) months[k].income += t.amount;
-    else months[k].expense += Math.abs(t.amount);
+    months[k].income += incomeDelta(t);
+    months[k].expense += spendDelta(t);
   });
   const bars = Object.entries(months).sort((a,b)=>a[0].localeCompare(b[0])).slice(-8);
   const maxBar = Math.max(...bars.flatMap(([,v])=>[v.income, v.expense]), 1);
@@ -45,12 +45,12 @@ function AccountDetailPage({ account, allTransactions, onBack }) {
         </div>
         <div className="detail-kpi">
           <div className="detail-kpi-label">INFLOW</div>
-          <div className="detail-kpi-val" style={{color:'var(--green)'}}>+{fmt(income)}</div>
+          <div className="detail-kpi-val" style={{color:'var(--green)'}}>+{fmt(income, false, cur)}</div>
           <div className="detail-kpi-sub">ALL TIME</div>
         </div>
         <div className="detail-kpi">
           <div className="detail-kpi-label">OUTFLOW</div>
-          <div className="detail-kpi-val" style={{color:'var(--red)'}}>-{fmt(expense)}</div>
+          <div className="detail-kpi-val" style={{color:'var(--red)'}}>-{fmt(expense, false, cur)}</div>
           <div className="detail-kpi-sub">ALL TIME</div>
         </div>
         <div className="detail-kpi">
@@ -68,8 +68,8 @@ function AccountDetailPage({ account, allTransactions, onBack }) {
               {bars.map(([mo, v]) => (
                 <div key={mo} className="tbc-col">
                   <div className="tbc-bars">
-                    <div className="tbc-bar income" style={{height:`${(v.income/maxBar)*100}%`}} title={`+{fmt(v.income)}`}/>
-                    <div className="tbc-bar expense" style={{height:`${(v.expense/maxBar)*100}%`}} title={`-{fmt(v.expense)}`}/>
+                    <div className="tbc-bar income" style={{height:`${(v.income/maxBar)*100}%`}} title={`+${fmt(v.income, false, cur)}`}/>
+                    <div className="tbc-bar expense" style={{height:`${(v.expense/maxBar)*100}%`}} title={`-${fmt(v.expense, false, cur)}`}/>
                   </div>
                   <div className="tbc-label">{mo.slice(5)}</div>
                 </div>

@@ -14,6 +14,16 @@ function AuthPage({ onDemo }) {
   const [error, setError]     = useState('');
   const [success, setSuccess] = useState('');
 
+  const forgotPassword = async () => {
+    setError(''); setSuccess('');
+    if (!email) return setError('Enter your email above first.');
+    setLoading(true);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    setLoading(false);
+    if (err) setError(err.message);
+    else setSuccess('If that email has an account, a reset link is on its way. After using it, set a new password in Settings → Security.');
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setError(''); setSuccess(''); setLoading(true);
@@ -66,7 +76,7 @@ function AuthPage({ onDemo }) {
                 <label className="field-label">Password</label>
                 <div className="field-wrap">
                   <Lock size={14} className="field-icon" />
-                  <input type={showPw ? 'text' : 'password'} required minLength={6}
+                  <input type={showPw ? 'text' : 'password'} required minLength={8}
                     value={password} onChange={e=>setPw(e.target.value)}
                     placeholder="••••••••" className="field-input has-toggle" />
                   <button type="button" className="field-toggle" onClick={() => setShowPw(s=>!s)}>
@@ -81,6 +91,11 @@ function AuthPage({ onDemo }) {
               <button type="submit" className="auth-submit" disabled={loading}>
                 {loading ? 'Please wait…' : mode === 'signin' ? 'Sign In' : 'Create Account'}
               </button>
+              {mode === 'signin' && (
+                <button type="button" className="auth-note" style={{background:'none',border:'none',cursor:'pointer',textDecoration:'underline'}} onClick={forgotPassword} disabled={loading}>
+                  Forgot password?
+                </button>
+              )}
             </form>
 
             <div className="auth-divider"><span>or</span></div>

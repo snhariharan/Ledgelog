@@ -1,3 +1,22 @@
+import { formatDisplayDate, monthShort, todayISO, toISODate } from './helpers';
+import { nextOccurrence } from './lib/repeats';
+
+// Demo data is authored around Aug 2026 and shifted so the newest month is
+// always the current month — period filters ("This Month") then have data.
+const BASE_MONTH_INDEX = 2026 * 12 + 7;
+const NOW = new Date();
+const SHIFT = NOW.getFullYear() * 12 + NOW.getMonth() - BASE_MONTH_INDEX;
+const TODAY = todayISO();
+
+const MONTHS = Array.from({ length: 12 }, (_, i) => monthShort(i));
+/** '10 Aug 2026' → shifted ISO date, never later than today. */
+const shiftDate = label => {
+  const [d, mon, y] = label.split(' ');
+  const idx = Number(y) * 12 + MONTHS.indexOf(mon) + SHIFT;
+  const iso = toISODate(new Date(Math.floor(idx / 12), idx % 12, Number(d)));
+  return iso > TODAY ? TODAY : iso;
+};
+
 // ─── Accounts ────────────────────────────────────────────────────────────────
 export const accountsData = [
   { id: 1, name: 'OP Account',      balance: 4521.38,  type: 'checking', institution: 'OnePoint Bank', currency: 'EUR' },
@@ -11,7 +30,6 @@ export const archivedAccountsData = [
   { id: 5, name: 'Old Checking',    balance: 0,        type: 'checking', institution: 'Legacy Bank' },
 ];
 
-export const netWorth = accountsData.reduce((sum, a) => sum + (a.type === 'credit' ? -a.balance : a.balance), 0);
 
 // ─── Tags ─────────────────────────────────────────────────────────────────────
 export const tagsData = [
@@ -33,43 +51,30 @@ export const tagsData = [
 
 // ─── Budgets ──────────────────────────────────────────────────────────────────
 export const budgetsData = [
-  { id: 1, tag: 'Home',           limit: 600.00,  spent: 751.75, color: '#ef4444' },
-  { id: 2, tag: 'Car',            limit: 400.00,  spent: 316.10, color: '#f59e0b' },
-  { id: 3, tag: 'Grocery',        limit: 500.00,  spent: 328.68, color: '#10b981' },
-  { id: 4, tag: 'Loan',           limit: 1450.00, spent: 1275.17,color: '#8b5cf6' },
-  { id: 5, tag: 'Indian Grocery', limit: 300.00,  spent: 100.00, color: '#14b8a6' },
-  { id: 6, tag: 'Dining',         limit: 250.00,  spent: 187.50, color: '#f97316' },
-  { id: 7, tag: 'Utilities',      limit: 200.00,  spent: 94.39,  color: '#64748b' },
-  { id: 8, tag: 'Subscription',   limit: 80.00,   spent: 55.00,  color: '#d946ef' },
+  { id: 1, tagId: 1, tag: 'Home',           monthlyLimit: 600.00,  color: '#ef4444' },
+  { id: 2, tagId: 2, tag: 'Car',            monthlyLimit: 400.00,  color: '#f59e0b' },
+  { id: 3, tagId: 4, tag: 'Grocery',        monthlyLimit: 500.00,  color: '#10b981' },
+  { id: 4, tagId: 3, tag: 'Loan',           monthlyLimit: 1450.00, color: '#8b5cf6' },
+  { id: 5, tagId: 7, tag: 'Indian Grocery', monthlyLimit: 300.00,  color: '#14b8a6' },
+  { id: 6, tagId: 8, tag: 'Dining',         monthlyLimit: 250.00,  color: '#f97316' },
+  { id: 7, tagId: 13, tag: 'Utilities',     monthlyLimit: 200.00,  color: '#64748b' },
+  { id: 8, tagId: 14, tag: 'Subscription',  monthlyLimit: 80.00,   color: '#d946ef' },
 ];
-
-// ─── Expense Summary (for donut chart) ────────────────────────────────────────
-export const expensesData = [
-  { id: 1, name: 'India',          amount: -2000.00, color: '#ec4899' },
-  { id: 2, name: 'Loan',           amount: -1275.17, color: '#8b5cf6' },
-  { id: 3, name: 'Home',           amount: -751.75,  color: '#ef4444' },
-  { id: 4, name: 'Car',            amount: -316.10,  color: '#f59e0b' },
-  { id: 5, name: 'Grocery',        amount: -328.68,  color: '#10b981' },
-  { id: 6, name: 'Dining',         amount: -187.50,  color: '#f97316' },
-  { id: 7, name: 'Bill',           amount: -94.39,   color: '#3b82f6' },
-  { id: 8, name: 'Subscription',   amount: -55.00,   color: '#d946ef' },
-];
-
-// ─── Summary ──────────────────────────────────────────────────────────────────
-export const summaryData = {
-  incomeThisMonth:   5200.00,
-  expenseThisMonth: -5008.59,
-};
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
 let txId = 1;
-const tx = (date, amount, description, tags, account, deleted = false, untagged = false) => ({
-  id: txId++,
-  date,
-  // rawDate: ISO string for reliable date sorting in the table
-  rawDate: new Date(date).toISOString().slice(0, 10),
-  amount, description, tags, account, deleted, untagged,
-});
+const tx = (date, amount, description, tags, account, deleted = false) => {
+  const rawDate = shiftDate(date);
+  return {
+    id: txId++,
+    date: formatDisplayDate(rawDate),
+    rawDate,
+    amount, description, tags, account, deleted,
+    untagged: tags.length === 0,
+    type: amount < 0 ? 'expense' : 'income',
+    notes: '',
+  };
+};
 
 export const transactionsData = [
   // ── August 2026 ──
@@ -129,25 +134,53 @@ export const transactionsData = [
   tx('5 Jun 2026',    -38.40,'Gas station',               ['Car'],            'OP Account'),
 
   // ── Deleted / Untagged ──
-  { ...tx('15 Jul 2026', -200.00, 'Unknown charge', [], 'HDFC Credit'), untagged: true , currency: 'INR' },
-  { ...tx('1 Jun 2026',  -500.00, 'Old transaction deleted', ['Home'], 'OP Account'), deleted: true , currency: 'EUR' },
+  tx('15 Jul 2026', -200.00, 'Unknown charge', [], 'HDFC Credit'),
+  tx('1 Jun 2026',  -500.00, 'Old transaction deleted', ['Home'], 'OP Account', true),
 ];
 
 // ─── IOUs ────────────────────────────────────────────────────────────────────
 export const iousData = [
-  { id: 1, person: 'Rahul Kumar',  amount: 250.00,  direction: 'owe_me',  note: 'Dinner split', date: '5 Aug 2026' },
-  { id: 2, person: 'Priya S',      amount: -80.00,  direction: 'i_owe',   note: 'Movie tickets', date: '4 Aug 2026' },
-  { id: 3, person: 'Arjun M',      amount: 120.50,  direction: 'owe_me',  note: 'Grocery split', date: '28 Jul 2026' },
+  { id: 1, person: 'Rahul Kumar',  amount: 250.00,  direction: 'owe_me',  note: 'Dinner split', date: formatDisplayDate(shiftDate('5 Aug 2026')) },
+  { id: 2, person: 'Priya S',      amount: -80.00,  direction: 'i_owe',   note: 'Movie tickets', date: formatDisplayDate(shiftDate('4 Aug 2026')) },
+  { id: 3, person: 'Arjun M',      amount: 120.50,  direction: 'owe_me',  note: 'Grocery split', date: formatDisplayDate(shiftDate('28 Jul 2026')) },
 ];
 
 // ─── Repeating Transactions ───────────────────────────────────────────────────
-export const repeatsData = [
+const rawRepeats = [
   { id: 1, description: 'Loan 1 EMI',       amount: -889.17, frequency: 'Monthly', nextDate: '27 Aug 2026', tags: ['Loan'] },
   { id: 2, description: 'Car EMI',          amount: -313.90, frequency: 'Monthly', nextDate: '15 Aug 2026', tags: ['Car'] },
   { id: 3, description: 'Loan 2 EMI',       amount: -120.48, frequency: 'Monthly', nextDate: '18 Aug 2026', tags: ['Loan'] },
   { id: 4, description: 'Netflix',          amount:  -45.99, frequency: 'Monthly', nextDate: '7 Sep 2026',  tags: ['Subscription'] },
   { id: 5, description: 'India Wire',       amount: -2000.00,frequency: 'Monthly', nextDate: '5 Sep 2026',  tags: ['India'] },
   { id: 6, description: 'Salary',           amount:  5200.00,frequency: 'Monthly', nextDate: '6 Sep 2026',  tags: ['Income'] },
+];
+
+const upcoming = (label, frequency) => {
+  let iso = shiftDate(label);
+  while (iso <= TODAY) iso = nextOccurrence(iso, frequency);
+  return iso;
+};
+export const repeatsData = rawRepeats.map(r => {
+  const nextDateISO = upcoming(r.nextDate, r.frequency);
+  return { ...r, account: 'OP Account', nextDateISO, nextDate: formatDisplayDate(nextDateISO) };
+});
+
+// ─── Rules ────────────────────────────────────────────────────────────────────
+export const rulesData = [
+  { id: 1, name: 'Auto-tag Salary',       matchText: 'Salary',   tagId: 12, tagName: 'Income',       active: true  },
+  { id: 2, name: 'India wire → India',    matchText: 'India',    tagId: 6,  tagName: 'India',        active: true  },
+  { id: 3, name: 'Loan EMIs',             matchText: 'EMI',      tagId: 3,  tagName: 'Loan',         active: true  },
+  { id: 4, name: 'Swiggy → Dining',       matchText: 'Swiggy',   tagId: 8,  tagName: 'Dining',       active: false },
+  { id: 5, name: 'Netflix subscription',  matchText: 'Netflix',  tagId: 14, tagName: 'Subscription', active: true  },
+];
+
+// ─── Holdings ─────────────────────────────────────────────────────────────────
+export const holdingsData = [
+  { id:1, name:'S&P 500 Index',    ticker:'SPY',  shares:12.5, price:445.20, cost:380.00, kind:'ETF',   color:'#3b82f6', currency:'USD' },
+  { id:2, name:'Apple Inc.',       ticker:'AAPL', shares:8,    price:189.30, cost:155.00, kind:'Stock', color:'#6366f1', currency:'USD' },
+  { id:3, name:'Gold ETF',         ticker:'GLD',  shares:5,    price:184.50, cost:170.00, kind:'ETF',   color:'#f59e0b', currency:'USD' },
+  { id:4, name:'US Bond Fund',     ticker:'BND',  shares:20,   price:73.10,  cost:78.00,  kind:'ETF',   color:'#10b981', currency:'USD' },
+  { id:5, name:'Emerging Markets', ticker:'VWO',  shares:30,   price:41.80,  cost:38.00,  kind:'ETF',   color:'#ec4899', currency:'USD' },
 ];
 
 // ─── Favorite Reports ─────────────────────────────────────────────────────────
