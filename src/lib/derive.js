@@ -150,42 +150,61 @@ export function topMovers(current, previous, tags) {
 // ── Master derivation ────────────────────────────────────────────────────────
 /**
  * Raw → view model. `raw.transactions` rows need `rawDate`, `amount`, `account`.
- * Only transactions in the base currency (first account's) are aggregated so
- * mixed-currency amounts are never added together.
+ *
+ * Multi-currency: every transaction gets a `normalizedAmount` in the display
+ * currency (`displayCurrency`, default: first account's) using `fxRates`.
+ * Without rates, foreign-currency transactions are excluded from aggregates
+ * (`foreignExcluded` = true) rather than added up as if they were the same unit.
+ * Lists (`rangedTransactions`) always keep every currency, in its own units.
  */
-export function withDerived(raw, period, now = new Date(), fxRates = {}) {
+export function withDerived(raw, period, now = new Date(), fxRates = {}, displayCurrency = null) {
   const accounts = raw.accounts ?? [];
   const curOf = new Map([...accounts, ...(raw.archivedAccounts ?? [])].map(a => [a.name, a.currency || 'USD']));
-  const transactions = raw.transactions.map(t => ({ ...t, currency: curOf.get(t.account) ?? t.currency ?? 'USD' }));
-  const baseCurrency = accounts[0]?.currency || 'USD';
+  const currencies = [...new Set(accounts.map(a => a.currency || 'USD'))];
+  const baseCurrency = displayCurrency && currencies.includes(displayCurrency) ? displayCurrency : (currencies[0] || 'USD');
+  const isMultiCurrency = currencies.length > 1;
+  const hasRates = !!fxRates && Object.keys(fxRates).length > 0;
+
+  const transactions = raw.transactions.map(t => {
+    const currency = curOf.get(t.account) ?? t.currency ?? 'USD';
+    const foreign = currency !== baseCurrency;
+    const normalizedAmount = !foreign ? t.amount : (hasRates ? convertFX(t.amount, currency, baseCurrency, fxRates) : null);
+    return { ...t, currency, normalizedAmount };
+  });
+
   const live = transactions.filter(t => !t.deleted);
-  const inBase = live.filter(t => t.currency === baseCurrency);
   const range = periodRange(period, now);
-  const ranged = inBase.filter(t => inRange(t.rawDate, range));
-  const expensesData = expenseByTag(ranged, raw.tags);
-  const { income, expense } = summarize(ranged);
-  const currencies = new Set(accounts.map(a => a.currency || 'USD'));
-  const nwByCurrency = netWorthByCurrency(accounts);
-  const hasRates = fxRates && Object.keys(fxRates).length > 0;
+  const allRanged = live.filter(t => inRange(t.rawDate, range));
+
+  // Aggregation inputs: amounts expressed in the display currency.
+  const withNorm = txs => txs.filter(t => t.normalizedAmount != null).map(t => ({ ...t, amount: t.normalizedAmount }));
+  const normRanged = withNorm(allRanged);
+  const normLive = withNorm(live);
+
+  const expensesData = expenseByTag(normRanged, raw.tags);
+  const { income, expense } = summarize(normRanged);
+
   return {
     ...raw,
     transactions,
     baseCurrency,
+    currencies,
     fxRates,
-    multiCurrency: currencies.size > 1,
+    multiCurrency: isMultiCurrency,
+    foreignExcluded: isMultiCurrency && !hasRates, // foreign txs left out of totals until rates load
     range,
-    rangedTransactions: ranged,
-    baseTransactions: inBase,
+    rangedTransactions: allRanged,       // every currency, native units — for tables
+    normalizedRanged: normRanged,        // display currency — for aggregates
+    baseTransactions: normLive,          // display currency, all history — trends / forecast
     expensesData,
-    incomeData: incomeByTag(ranged, raw.tags),
+    incomeData: incomeByTag(normRanged, raw.tags),
     summaryData: { income, expense },
-    budgets: budgetStatus(raw.budgets ?? [], expensesData, range, inBase),
-    netWorthByCurrency: nwByCurrency,
-    // Unified net worth in base currency (null when rates unavailable)
+    budgets: budgetStatus(raw.budgets ?? [], expensesData, range, normLive),
+    netWorthByCurrency: netWorthByCurrency(accounts),
+    // Unified net worth in the display currency (null when rates unavailable)
     netWorthConverted: hasRates ? netWorthConverted(accounts, baseCurrency, fxRates) : null,
   };
 }
-
 
 export function netWorthByCurrency(accounts) {
   const map = {};
