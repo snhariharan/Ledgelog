@@ -54,7 +54,7 @@ function DashboardPage({ appData, actions, period, onPeriod, onRefresh, refreshi
         </div>
         {multiCurrency && (
           <div className="form-note" style={{margin:'0.25rem 0.25rem 0'}}>
-            Totals, charts and budgets include {baseCurrency} accounts only; amounts in other currencies are never mixed in.
+            Totals, charts and budgets include <strong>{baseCurrency}</strong> accounts only. See the sidebar for per-currency net worth — click <em>Fetch rates for total</em> to see a unified figure.
           </div>
         )}
 

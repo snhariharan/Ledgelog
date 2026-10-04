@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { PiggyBank, Plus, Pencil, Trash2 } from 'lucide-react';
-import { fmt, CURRENCIES, PRESET_COLORS } from '../helpers';
+import React, { useState, useCallback } from 'react';
+import { PiggyBank, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { fmt, CURRENCIES, PRESET_COLORS, round2 } from '../helpers';
+import { fetchTickerPrice } from '../lib/fx';
 import DonutChart from '../components/DonutChart';
 import Modal from '../components/Modal';
 
@@ -57,6 +58,26 @@ function InvestmentsPage({ appData, actions }) {
   const { holdings, baseCurrency } = appData;
   const [modal, setModal] = useState(null);
   const [cur, setCur] = useState(null);
+  const [priceStatus, setPriceStatus] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshPrices = useCallback(async () => {
+    const tickers = [...new Set(portfolio.map(p => p.ticker))];
+    if (!tickers.length) return;
+    setRefreshing(true);
+    setPriceStatus(`Fetching ${tickers.length} price${tickers.length > 1 ? 's' : ''}…`);
+    let updated = 0, failed = 0;
+    for (const ticker of tickers) {
+      const price = await fetchTickerPrice(ticker);
+      if (price != null) {
+        const h = holdings.find(h => h.ticker === ticker);
+        if (h) { await actions.saveHolding({ ...h, price }); updated++; }
+      } else failed++;
+    }
+    setRefreshing(false);
+    setPriceStatus(`Updated ${updated}${failed ? `, ${failed} failed (enter manually)` : ''}.`);
+    setTimeout(() => setPriceStatus(''), 6000);
+  }, [portfolio, holdings, actions]);
 
   // Holdings can be in different currencies; never add across them.
   const currencies = [...new Set(holdings.map(h => h.currency))];
@@ -87,6 +108,11 @@ function InvestmentsPage({ appData, actions }) {
           )}
         </div>
         <div className="sub-hdr-right">
+          {portfolio.length > 0 && (
+            <button className="btn-ghost" onClick={refreshPrices} disabled={refreshing} title="Fetch current prices from Yahoo Finance">
+              <RefreshCw size={12} style={refreshing ? {animation:'spin 0.8s linear infinite'} : undefined}/> Refresh Prices
+            </button>
+          )}
           <button className="btn-pri" onClick={() => setModal({})}><Plus size={12}/> Add Holding</button>
         </div>
       </div>
@@ -105,6 +131,9 @@ function InvestmentsPage({ appData, actions }) {
             <span className="sum-val" style={{color:totalGain>=0?'var(--green)':'var(--red)'}}>{returnPct.toFixed(2)}%</span>
           </div>
         </div>
+        {priceStatus && (
+          <div className="form-note" style={{margin:'0.25rem 0.25rem 0',color:'var(--blue)'}}>{priceStatus}</div>
+        )}
 
         {portfolio.length === 0 ? (
           <div className="widget-card" style={{marginTop:'1rem'}}>

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Landmark, Calendar, Tag, Users, Star, Plus,
   PlusCircle, Edit2, Trash2, Archive, LogOut,
-  ChevronDown, X,
+  ChevronDown, X, RefreshCw,
 } from 'lucide-react';
 import { fmt, PRESET_COLORS, ACCOUNT_TYPES, CURRENCIES, REPEAT_FREQS, todayISO } from '../helpers';
 
@@ -369,14 +369,22 @@ function AddRepeatModal({ tags, accounts, onClose, onAdd }) {
 }
 
 /* ──── Main LeftSidebar ──── */
-function LeftSidebar({ appData, actions, onSignOut, onNavigate }) {
+function LeftSidebar({ appData, actions, onSignOut, onNavigate, onRefreshRates }) {
   const [activeTab, setActiveTab] = useState('accounts');
   const [showArchived, setShowArchived] = useState(false);
+  const [refreshingRates, setRefreshingRates] = useState(false);
 
-  const { accounts, archivedAccounts: archived, tags, ious, repeats, favorites, netWorthByCurrency } = appData;
+  const { accounts, archivedAccounts: archived, tags, ious, repeats, favorites, netWorthByCurrency, netWorthConverted, baseCurrency: appBaseCurrency } = appData;
   const isMultiCurrency = netWorthByCurrency.length > 1;
   const netWorth = netWorthByCurrency[0]?.[1] ?? 0;
   const baseCurrency = netWorthByCurrency[0]?.[0] ?? 'USD';
+
+  const handleRefreshRates = async () => {
+    if (!onRefreshRates) return;
+    setRefreshingRates(true);
+    await onRefreshRates();
+    setRefreshingRates(false);
+  };
 
   // Modal visibility
   const [showAddAcc,  setShowAddAcc]  = useState(false);
@@ -428,11 +436,40 @@ function LeftSidebar({ appData, actions, onSignOut, onNavigate }) {
                       </span>
                     </div>
                   ))}
+                  {netWorthConverted != null ? (
+                    <div style={{marginTop:'0.3rem',paddingTop:'0.3rem',borderTop:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                      <span style={{fontSize:'0.58rem',color:'var(--text-3)',fontWeight:500}}>≈ TOTAL ({baseCurrency})</span>
+                      <span style={{fontSize:'1rem',fontWeight:700,color:netWorthConverted>=0?'var(--green)':'var(--red)'}}>
+                        {netWorthConverted>=0?'+':''}{fmt(netWorthConverted, false, baseCurrency)}
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      style={{marginTop:'0.35rem',fontSize:'0.6rem',color:'var(--blue)',background:'none',border:'none',cursor:'pointer',padding:0,textAlign:'left',display:'flex',alignItems:'center',gap:3}}
+                      onClick={handleRefreshRates}
+                      disabled={refreshingRates}
+                      title="Fetch current exchange rates to show unified net worth"
+                    >
+                      <RefreshCw size={9} style={refreshingRates ? {animation:'spin 0.8s linear infinite'} : undefined}/>
+                      {refreshingRates ? 'Fetching rates…' : 'Fetch rates for total'}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="nw-value" style={{color:netWorth>=0?'var(--green)':'var(--red)'}}>
                   {netWorth>=0?'+':'-'}{fmt(Math.abs(netWorth), false, baseCurrency)}
                 </div>
+              )}
+              {isMultiCurrency && netWorthConverted != null && (
+                <button
+                  style={{marginTop:'0.3rem',fontSize:'0.58rem',color:'var(--text-3)',background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:3}}
+                  onClick={handleRefreshRates}
+                  disabled={refreshingRates}
+                  title="Refresh exchange rates"
+                >
+                  <RefreshCw size={8} style={refreshingRates ? {animation:'spin 0.8s linear infinite'} : undefined}/>
+                  {refreshingRates ? 'Refreshing…' : 'Refresh rates'}
+                </button>
               )}
             </div>
             <div className="sb-sec-hdr">

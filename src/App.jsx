@@ -9,6 +9,7 @@ import { supabase, IS_SUPABASE_CONFIGURED } from './lib/supabase';
 import * as db from './lib/db';
 import { createActions } from './lib/actions';
 import { withDerived } from './lib/derive';
+import { getExchangeRates, invalidateRatesCache } from './lib/fx';
 import { getStored, setStored } from './helpers';
 
 import {
@@ -74,6 +75,7 @@ export default function App() {
   const [period, setPeriod]           = useState('This Month');
   const [theme, setTheme]             = useState(() => getStored('app_theme', 'light'));
   const [toast, setToast]             = useState(null);
+  const [fxRates, setFxRates]         = useState({});
 
   const userId = session?.user?.id ?? null;
 
@@ -166,7 +168,21 @@ export default function App() {
     return () => window.removeEventListener('keydown', h);
   }, []);
 
-  const view = useMemo(() => (raw ? withDerived(raw, period) : null), [raw, period]);
+  const view = useMemo(() => (raw ? withDerived(raw, period, undefined, fxRates) : null), [raw, period, fxRates]);
+
+  // Fetch FX rates whenever we have multi-currency accounts
+  useEffect(() => {
+    if (!view) return;
+    if (!view.multiCurrency) return;
+    getExchangeRates().then(rates => { if (rates && Object.keys(rates).length) setFxRates(rates); });
+  }, [view?.multiCurrency]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refreshRates = async () => {
+    invalidateRatesCache();
+    const rates = await getExchangeRates();
+    if (rates && Object.keys(rates).length) { setFxRates(rates); notify('Exchange rates updated.'); }
+    else notify('Could not fetch exchange rates — using cached values.', 'error');
+  };
 
   if (authLoading) return <LoadingScreen message="Checking authentication…"/>;
   if (!session && !demoMode) return <AuthPage onDemo={() => setDemoMode(true)}/>;
@@ -257,6 +273,7 @@ export default function App() {
             actions={actions}
             onSignOut={handleSignOut}
             onNavigate={(type, item) => setNavDetail({ type, item })}
+            onRefreshRates={view.multiCurrency ? refreshRates : undefined}
           />
         )}
         <div className="main-area">

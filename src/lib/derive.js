@@ -153,7 +153,7 @@ export function topMovers(current, previous, tags) {
  * Only transactions in the base currency (first account's) are aggregated so
  * mixed-currency amounts are never added together.
  */
-export function withDerived(raw, period, now = new Date()) {
+export function withDerived(raw, period, now = new Date(), fxRates = {}) {
   const accounts = raw.accounts ?? [];
   const curOf = new Map([...accounts, ...(raw.archivedAccounts ?? [])].map(a => [a.name, a.currency || 'USD']));
   const transactions = raw.transactions.map(t => ({ ...t, currency: curOf.get(t.account) ?? t.currency ?? 'USD' }));
@@ -165,10 +165,13 @@ export function withDerived(raw, period, now = new Date()) {
   const expensesData = expenseByTag(ranged, raw.tags);
   const { income, expense } = summarize(ranged);
   const currencies = new Set(accounts.map(a => a.currency || 'USD'));
+  const nwByCurrency = netWorthByCurrency(accounts);
+  const hasRates = fxRates && Object.keys(fxRates).length > 0;
   return {
     ...raw,
     transactions,
     baseCurrency,
+    fxRates,
     multiCurrency: currencies.size > 1,
     range,
     rangedTransactions: ranged,
@@ -177,9 +180,12 @@ export function withDerived(raw, period, now = new Date()) {
     incomeData: incomeByTag(ranged, raw.tags),
     summaryData: { income, expense },
     budgets: budgetStatus(raw.budgets ?? [], expensesData, range, inBase),
-    netWorthByCurrency: netWorthByCurrency(accounts),
+    netWorthByCurrency: nwByCurrency,
+    // Unified net worth in base currency (null when rates unavailable)
+    netWorthConverted: hasRates ? netWorthConverted(accounts, baseCurrency, fxRates) : null,
   };
 }
+
 
 export function netWorthByCurrency(accounts) {
   const map = {};
@@ -188,4 +194,29 @@ export function netWorthByCurrency(accounts) {
     map[cur] = round2((map[cur] || 0) + (a.type === 'credit' ? -a.balance : a.balance));
   }
   return Object.entries(map);
+}
+
+/**
+ * Convert each per-currency net-worth figure to a single target currency using
+ * the supplied rates object (as returned by fx.getExchangeRates).
+ * Returns null when rates is empty / unavailable.
+ */
+export function netWorthConverted(accounts, targetCurrency, rates) {
+  if (!rates || !Object.keys(rates).length) return null;
+  let total = 0;
+  for (const a of accounts) {
+    const cur = a.currency || 'USD';
+    const signed = a.type === 'credit' ? -a.balance : a.balance;
+    total += convertFX(signed, cur, targetCurrency, rates);
+  }
+  return round2(total);
+}
+
+
+/** Stand-alone converter (avoids circular import with fx.js). */
+export function convertFX(amount, from, to, rates) {
+  if (from === to || !rates || !Object.keys(rates).length) return amount;
+  const inUSD = from === 'USD' ? amount : amount / (rates[from] ?? 1);
+  const result = to === 'USD' ? inUSD : inUSD * (rates[to] ?? 1);
+  return round2(result);
 }
