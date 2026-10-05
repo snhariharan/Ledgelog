@@ -113,6 +113,6 @@ WHERE a.name = 'OP Account'
 
 
 -- ════════════════════════════════════════════════════════════════════════════
--- Run 05_update_rls.sql next if you add new columns and need to expose them
--- via Supabase RLS / realtime policies.
+-- Run 05_hardening.sql next — required for the current app (tx_type,
+-- transfer pairing, balance trigger, rules/holdings tables, etc.)
 -- ════════════════════════════════════════════════════════════════════════════

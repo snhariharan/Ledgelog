@@ -8,6 +8,7 @@
 -- 4. Repeat frequencies aligned with the UI
 -- 5. Ownership checks on foreign keys (account_id / tag_id)
 -- 6. New tables: rules, holdings
+-- 7. Seed demo rules & holdings (for the demo user from 03_seed_data.sql)
 --
 -- NOTE: the balance trigger only affects writes made AFTER this migration.
 -- If you load 03_seed_data.sql, run it BEFORE this file.
@@ -218,6 +219,50 @@ ALTER TABLE public.holdings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "holdings: all own" ON public.holdings;
 CREATE POLICY "holdings: all own" ON public.holdings FOR ALL
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+
+-- ── 7. Seed demo rules & holdings ────────────────────────────────────────────
+-- Mirrors src/mockData.js so a real Supabase-backed signup sees the same demo
+-- rows as local demo mode. Only runs if 03_seed_data.sql created the demo
+-- profile (by email) and is idempotent — safe to re-run.
+DO $$
+DECLARE
+  uid UUID;
+BEGIN
+  SELECT id INTO uid FROM public.profiles WHERE email = 'demo@ledgelog.app';
+  IF uid IS NULL THEN
+    RETURN;
+  END IF;
+
+  INSERT INTO public.rules (user_id, name, match_text, tag_id, is_active, sort_order)
+  SELECT uid, v.name, v.match_text, tg.id, v.is_active, v.sort_order
+  FROM (VALUES
+    ('Auto-tag Salary',      'Salary',  'Income',       TRUE,  1),
+    ('India wire → India',   'India',   'India',        TRUE,  2),
+    ('Loan EMIs',            'EMI',     'Loan',         TRUE,  3),
+    ('Swiggy → Dining',      'Swiggy',  'Dining',       FALSE, 4),
+    ('Netflix subscription', 'Netflix', 'Subscription', TRUE,  5)
+  ) AS v(name, match_text, tag_name, is_active, sort_order)
+  JOIN public.tags tg ON tg.user_id = uid AND tg.name = v.tag_name
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.rules r WHERE r.user_id = uid AND r.name = v.name
+  );
+
+  INSERT INTO public.holdings (user_id, name, ticker, kind, shares, price, cost, currency, color)
+  SELECT uid, v.name, v.ticker, v.kind, v.shares, v.price, v.cost, 'USD', v.color
+  FROM (VALUES
+    ('S&P 500 Index',    'SPY',  'ETF',   12.5, 445.20, 380.00, '#3b82f6'),
+    ('Apple Inc.',       'AAPL', 'Stock', 8.0,  189.30, 155.00, '#6366f1'),
+    ('Gold ETF',         'GLD',  'ETF',   5.0,  184.50, 170.00, '#f59e0b'),
+    ('US Bond Fund',     'BND',  'ETF',   20.0, 73.10,  78.00,  '#10b981'),
+    ('Emerging Markets', 'VWO',  'ETF',   30.0, 41.80,  38.00,  '#ec4899')
+  ) AS v(name, ticker, kind, shares, price, cost, color)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.holdings h WHERE h.user_id = uid AND h.ticker = v.ticker
+  );
+
+  RAISE NOTICE '✓ Demo rules & holdings seeded for %', uid;
+END $$;
 
 
 -- ── Grants ───────────────────────────────────────────────────────────────────

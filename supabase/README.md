@@ -4,7 +4,7 @@
 
 ### Prerequisites
 - A free [Supabase](https://supabase.com) account and project
-- The Supabase project URL and anon key (from **Project Settings → API**)
+- The Supabase project URL and publishable key (from **Project Settings → API Keys**)
 
 ---
 
@@ -66,6 +66,7 @@ Paste and run [`05_hardening.sql`](./05_hardening.sql). **Required** for the cur
 | Repeat frequencies `Daily, Weekly, Bi-weekly, Monthly, Yearly` | Matches the UI |
 | Ownership checks on `account_id` / `tag_id` | A user can't attach rows to someone else's accounts or tags |
 | New tables `rules`, `holdings` | Persisted auto-tag rules and manual investment holdings |
+| Seeds demo `rules` & `holdings` | For the demo user from step 03 — mirrors local demo-mode data |
 
 > The balance trigger only affects writes made **after** it is installed. If you use the seed file, run it **before** `05`.
 
@@ -85,11 +86,11 @@ Copy `.env.example` to `.env` in the project root:
 cp .env.example .env
 ```
 
-Fill in your values from **Supabase → Project Settings → API**:
+Fill in your values from **Supabase → Project Settings → API Keys**:
 
 ```env
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
 ---
@@ -114,6 +115,8 @@ profiles (1)──────< budgets (N) >──────── tags
 profiles (1)──────< ious (N)
 profiles (1)──────< repeating_transactions (N) >─ repeating_transaction_tags ──< tags
 profiles (1)──────< favorites (N)
+profiles (1)──────< rules (N) >──────── tags
+profiles (1)──────< holdings (N)
 ```
 
 ---
