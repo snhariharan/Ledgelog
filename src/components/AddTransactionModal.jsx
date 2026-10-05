@@ -31,7 +31,7 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
     return sorted;
   })();
   
-  const [mode, setMode]     = useState(editData ? 'single' : 'multi');
+  const [mode, setMode]     = useState(editData || window.innerWidth <= 768 ? 'single' : 'multi');
   const [rows, setRows]     = useState(() => Array.from({ length: NUM_ROWS }, () => makeRow(defaultAcc)));
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});

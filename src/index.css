@@ -2364,3 +2364,87 @@ select.form-input option {
 .ccy-switch button { background: none; border: none; padding: 0.25rem 0.55rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; color: var(--text-3); cursor: pointer; }
 .ccy-switch button:hover { color: var(--text-1); }
 .ccy-switch button.active { background: var(--blue); color: #fff; }
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVE — tablet & mobile
+═══════════════════════════════════════════════════════ */
+
+/* Dynamic viewport height so mobile browser chrome doesn't clip the shell */
+.app-shell { height: 100dvh; }
+
+/* Hidden on desktop; shown behind the off-canvas sidebar on mobile */
+.sidebar-backdrop { display: none; }
+
+@media (max-width: 900px) {
+  .nav-links {
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* overflow-x:auto drops the content-based auto min-width, so without an
+       explicit floor this flex item can get squeezed to 0 by its siblings. */
+    min-width: 110px;
+  }
+  .nav-links::-webkit-scrollbar { display: none; }
+}
+
+@media (max-width: 768px) {
+  /* Left sidebar becomes an off-canvas drawer over the content */
+  .left-sidebar {
+    position: fixed;
+    top: 44px;
+    left: 0;
+    bottom: 0;
+    width: min(82vw, 300px);
+    box-shadow: var(--shadow-lg);
+    z-index: 260;
+  }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 44px 0 0 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 250;
+  }
+
+  /* Dashboard-style grids stack instead of crowding horizontally */
+  .summary-strip { grid-template-columns: repeat(2, 1fr); }
+  .widgets-grid { flex-direction: column; }
+  .widgets-grid .widget-card { width: 100%; }
+
+  /* Tables scroll horizontally instead of crushing columns */
+  .txn-table, .budgets-table, .page-table, .ins-tag-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Multi-row add-transaction grid: let the modal scroll sideways */
+  .mtx-grid-hdr, .mtx-row { min-width: 620px; }
+
+  .detail-hdr { flex-wrap: wrap; row-gap: 0.4rem; }
+  .detail-page { padding: 1rem; }
+
+  .settings-tabs { width: 130px !important; }
+}
+
+@media (max-width: 640px) {
+  .nav-brand { margin-right: 0.5rem; font-size: 0.9rem; }
+  .nav-item .nav-label { display: none; }
+  .nav-item { padding: 0 0.6rem; }
+  /* Frees up room for the primary page tabs; multi-currency display
+     switching is a secondary feature on small screens. */
+  .ccy-switch { display: none; }
+
+  .form-row-2, .form-row, .sgl-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+  .summary-strip { grid-template-columns: 1fr; }
+  .left-sidebar { width: 88vw; }
+  .modal-overlay { padding: 0.5rem; }
+  .settings-tabs { width: 92px !important; padding: 0.5rem 0 !important; }
+  .settings-tabs > div {
+    padding: 0.5rem 0.6rem !important;
+    gap: 0.35rem !important;
+    font-size: 0.72rem !important;
+  }
+}

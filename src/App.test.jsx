@@ -4,7 +4,7 @@ import { render, screen, fireEvent, within, waitFor } from '@testing-library/rea
 import App from './App';
 
 const renderApp = () => render(<StrictMode><App/></StrictMode>);
-const openPage = label => fireEvent.click(screen.getAllByText(label.toUpperCase()).find(el => el.classList.contains('nav-item')));
+const openPage = label => fireEvent.click(screen.getAllByText(label.toUpperCase())[0].closest('.nav-item'));
 
 describe('App (demo mode)', () => {
   it('renders every page without crashing', async () => {

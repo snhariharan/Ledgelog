@@ -67,7 +67,7 @@ export default function App() {
   const [dataError, setDataError]     = useState('');
   const [navPage, setNavPage]         = useState('dashboard');
   const [navDetail, setNavDetail]     = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
   const [showSearch, setShowSearch]   = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState('profile');
@@ -219,7 +219,7 @@ export default function App() {
         <div className="nav-links">
           {NAV.map(({key,label,Icon})=>(
             <div key={key} className={`nav-item ${navPage===key?'active':''}`} onClick={()=>handlePageNav(key)}>
-              <Icon size={13}/>{label.toUpperCase()}
+              <Icon size={13}/><span className="nav-label">{label.toUpperCase()}</span>
             </div>
           ))}
         </div>
@@ -279,13 +279,16 @@ export default function App() {
 
       <div className="body-layout">
         {sidebarOpen && (
-          <LeftSidebar
-            appData={view}
-            actions={actions}
-            onSignOut={handleSignOut}
-            onNavigate={(type, item) => setNavDetail({ type, item })}
-            onRefreshRates={view.multiCurrency ? refreshRates : undefined}
-          />
+          <>
+            <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)}/>
+            <LeftSidebar
+              appData={view}
+              actions={actions}
+              onSignOut={handleSignOut}
+              onNavigate={(type, item) => setNavDetail({ type, item })}
+              onRefreshRates={view.multiCurrency ? refreshRates : undefined}
+            />
+          </>
         )}
         <div className="main-area">
           <ErrorBoundary resetKey={pageKey}>

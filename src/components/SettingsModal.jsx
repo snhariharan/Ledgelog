@@ -132,8 +132,8 @@ export default function SettingsModal({ onClose, appData, actions, demoMode, the
           <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16}/></button>
         </div>
 
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <div style={{ width: 180, borderRight: '1px solid var(--modal-border)', background: 'var(--surface-alt)', padding: '0.75rem 0', flexShrink: 0, overflowY: 'auto' }}>
+        <div className="settings-body" style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <div className="settings-tabs" style={{ width: 180, borderRight: '1px solid var(--modal-border)', background: 'var(--surface-alt)', padding: '0.75rem 0', flexShrink: 0, overflowY: 'auto' }}>
             {TABS.map(({ key, label, Icon }) => (
               <div key={key} onClick={() => setActiveTab(key)} style={{
                 padding: '0.65rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.85rem',
