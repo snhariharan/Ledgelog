@@ -158,51 +158,68 @@ export function topMovers(current, previous, tags) {
  * Lists (`rangedTransactions`) always keep every currency, in its own units.
  */
 export function withDerived(raw, period, now = new Date(), fxRates = {}, displayCurrency = null) {
-  const accounts = raw.accounts ?? [];
-  const curOf = new Map([...accounts, ...(raw.archivedAccounts ?? [])].map(a => [a.name, a.currency || 'USD']));
-  const currencies = [...new Set(accounts.map(a => a.currency || 'USD'))];
-  const baseCurrency = displayCurrency && currencies.includes(displayCurrency) ? displayCurrency : (currencies[0] || 'USD');
+  const allAccounts = raw.accounts ?? [];
+  const curOf = new Map([...allAccounts, ...(raw.archivedAccounts ?? [])].map(a => [a.name, a.currency || 'USD']));
+  const currencies = [...new Set(allAccounts.map(a => a.currency || 'USD'))];
   const isMultiCurrency = currencies.length > 1;
   const hasRates = !!fxRates && Object.keys(fxRates).length > 0;
 
+  // Determine base currency: "All" = multi-currency view, otherwise filter to specific currency
+  const baseCurrency = displayCurrency === 'All' ? 'All' :
+    (displayCurrency && currencies.includes(displayCurrency) ? displayCurrency : (currencies[0] || 'USD'));
+
+  const filterSingleCurrency = baseCurrency !== 'All';
+  const selectedCurrency = filterSingleCurrency ? baseCurrency : null;
+
+  // Normalize all transactions to display currency
   const transactions = raw.transactions.map(t => {
     const currency = curOf.get(t.account) ?? t.currency ?? 'USD';
-    const foreign = currency !== baseCurrency;
-    const normalizedAmount = !foreign ? t.amount : (hasRates ? convertFX(t.amount, currency, baseCurrency, fxRates) : null);
+    const foreign = selectedCurrency && currency !== selectedCurrency;
+    const normalizedAmount = !foreign ? t.amount : (hasRates ? convertFX(t.amount, currency, selectedCurrency, fxRates) : null);
     return { ...t, currency, normalizedAmount };
   });
 
-  const live = transactions.filter(t => !t.deleted);
+  // Filter accounts: if single currency selected, show only those; if "All", show all
+  const accounts = filterSingleCurrency
+    ? allAccounts.filter(a => (a.currency || 'USD') === selectedCurrency)
+    : allAccounts;
+  const accountNames = new Set(accounts.map(a => a.name));
+
+  // Transactions: show all from filtered accounts
+  const filtered = transactions.filter(t => accountNames.has(t.account));
+  const live = filtered.filter(t => !t.deleted);
   const range = periodRange(period, now);
   const allRanged = live.filter(t => inRange(t.rawDate, range));
 
-  // Aggregation inputs: amounts expressed in the display currency.
-  const withNorm = txs => txs.filter(t => t.normalizedAmount != null).map(t => ({ ...t, amount: t.normalizedAmount }));
-  const normRanged = withNorm(allRanged);
-  const normLive = withNorm(live);
+  // For aggregations, use normalized amounts where available; exclude foreign if rates missing
+  const foreignExcluded = !hasRates && isMultiCurrency && baseCurrency === 'All';
+  const aggregationTxns = allRanged.map(t => {
+    if (foreignExcluded && t.normalizedAmount === null) return null;
+    return { ...t, amount: t.normalizedAmount ?? t.amount };
+  }).filter(Boolean);
 
-  const expensesData = expenseByTag(normRanged, raw.tags);
-  const { income, expense } = summarize(normRanged);
+  const expensesData = expenseByTag(aggregationTxns, raw.tags);
+  const { income, expense } = summarize(aggregationTxns);
 
   return {
     ...raw,
-    transactions,
+    accounts,
+    transactions: filtered,
     baseCurrency,
     currencies,
     fxRates,
     multiCurrency: isMultiCurrency,
-    foreignExcluded: isMultiCurrency && !hasRates, // foreign txs left out of totals until rates load
+    foreignExcluded,
     range,
-    rangedTransactions: allRanged,       // every currency, native units — for tables
-    normalizedRanged: normRanged,        // display currency — for aggregates
-    baseTransactions: normLive,          // display currency, all history — trends / forecast
+    rangedTransactions: allRanged,
+    normalizedRanged: aggregationTxns,
+    baseTransactions: live,
     expensesData,
-    incomeData: incomeByTag(normRanged, raw.tags),
+    incomeData: incomeByTag(aggregationTxns, raw.tags),
     summaryData: { income, expense },
-    budgets: budgetStatus(raw.budgets ?? [], expensesData, range, normLive),
-    netWorthByCurrency: netWorthByCurrency(accounts),
-    // Unified net worth in the display currency (null when rates unavailable)
-    netWorthConverted: hasRates ? netWorthConverted(accounts, baseCurrency, fxRates) : null,
+    budgets: budgetStatus(raw.budgets ?? [], expensesData, range, live),
+    netWorthByCurrency: netWorthByCurrency(allAccounts),
+    netWorthConverted: baseCurrency === 'All' ? netWorthConverted(allAccounts, 'USD', fxRates) : null,
   };
 }
 

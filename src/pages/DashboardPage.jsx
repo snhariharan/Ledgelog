@@ -88,6 +88,7 @@ function DashboardPage({ appData, actions, period, onPeriod, onRefresh, refreshi
           tagsList={tags}
           accountsList={accounts}
           editData={editTxn}
+          displayCurrency={baseCurrency}
         />
       )}
     </>

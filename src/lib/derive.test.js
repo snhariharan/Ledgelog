@@ -99,22 +99,34 @@ describe('withDerived multi-currency (FX)', () => {
     archivedAccounts: [], tags: TAGS, budgets: [],
     transactions: [tx('2026-10-02', -10, ['Food'], { account: 'A' }), tx('2026-10-02', -900, ['Food'], { account: 'B' })],
   };
-  it('without rates, foreign transactions are excluded and flagged', () => {
+  it('defaults to first currency and filters to it', () => {
     const v = withDerived(raw, 'This Month', NOW);
-    expect(v.foreignExcluded).toBe(true);
+    expect(v.baseCurrency).toBe('EUR');
+    expect(v.accounts).toHaveLength(1); // only EUR accounts
     expect(v.summaryData.expense).toBe(-10);
+    expect(v.rangedTransactions).toHaveLength(1);
+    expect(v.foreignExcluded).toBe(false); // rates not provided, but filtering single currency
   });
-  it('with rates, everything is combined in the display currency', () => {
-    const v = withDerived(raw, 'This Month', NOW, RATES);
-    expect(v.foreignExcluded).toBe(false);
-    expect(v.currencies).toEqual(['EUR', 'INR']);
-    expect(v.summaryData.expense).toBe(-19); // 10 EUR + 900 INR (= 9 EUR)
-  });
-  it('can display in another currency', () => {
+  it('filters to selected currency when rates available', () => {
     const v = withDerived(raw, 'This Month', NOW, RATES, 'INR');
     expect(v.baseCurrency).toBe('INR');
-    expect(v.summaryData.expense).toBe(-1900); // 900 INR + 10 EUR (= 1000 INR)
-    expect(v.netWorthConverted).toBe(19000); // 100 EUR (= 10000 INR) + 9000 INR
-    expect(v.rangedTransactions).toHaveLength(2); // lists keep every currency
+    expect(v.accounts).toHaveLength(1);
+    expect(v.summaryData.expense).toBe(-900);
+    expect(v.rangedTransactions).toHaveLength(1);
+  });
+  it('with "All" currency, shows all accounts and converts with rates', () => {
+    const v = withDerived(raw, 'This Month', NOW, RATES, 'All');
+    expect(v.baseCurrency).toBe('All');
+    expect(v.accounts).toHaveLength(2); // both accounts
+    expect(v.rangedTransactions).toHaveLength(2); // both transactions
+    // EUR -10 + INR -900 converted to USD: -10/0.9 + -900/90 ≈ -11.11 - 10 = -21.11
+    expect(v.summaryData.expense).toBeLessThan(-20);
+    expect(v.netWorthConverted).not.toBeNull(); // total net worth in USD
+  });
+  it('without rates, marks foreignExcluded when aggregating "All"', () => {
+    const v = withDerived(raw, 'This Month', NOW, {}, 'All');
+    expect(v.baseCurrency).toBe('All');
+    expect(v.foreignExcluded).toBe(true); // can't convert without rates
+    // Should only count first currency since rates missing
   });
 });

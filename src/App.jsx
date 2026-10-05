@@ -225,7 +225,9 @@ export default function App() {
         </div>
         <div className="nav-right">
           {view.multiCurrency && (
-            <div className="ccy-switch" role="tablist" aria-label="Display currency" title="Show every tab in this currency (others are converted)">
+            <div className="ccy-switch" role="tablist" aria-label="Display currency" title="Show data in selected currency (converted with exchange rates if available)">
+              <button role="tab" aria-selected={view.baseCurrency === 'All'}
+                className={view.baseCurrency === 'All' ? 'active' : ''} onClick={() => setCurrency('All')}>All</button>
               {view.currencies.map(c => (
                 <button key={c} role="tab" aria-selected={view.baseCurrency === c}
                   className={view.baseCurrency === c ? 'active' : ''} onClick={() => setCurrency(c)}>{c}</button>

@@ -12,9 +12,25 @@ function makeRow(accountId) {
 
 const isTransferType = t => t === 'transfer_in' || t === 'transfer_out';
 
-function AddTransactionModal({ onClose, actions, tagsList, accountsList, editData }) {
+function AddTransactionModal({ onClose, actions, tagsList, accountsList, editData, displayCurrency }) {
   const defaultAcc = accountsList[0]?.id ?? null;
   const getCurrencySymbol = accId => currencySymbol(accountsList.find(a => a.id === accId)?.currency || 'USD');
+  const groupedAccounts = (() => {
+    const groups = {};
+    for (const acc of accountsList) {
+      const cur = acc.currency || 'USD';
+      if (!groups[cur]) groups[cur] = [];
+      groups[cur].push(acc);
+    }
+    // Sort so displayCurrency comes first (unless it's "All")
+    const sorted = {};
+    if (displayCurrency && displayCurrency !== 'All' && groups[displayCurrency]) sorted[displayCurrency] = groups[displayCurrency];
+    for (const [cur, accs] of Object.entries(groups)) {
+      if (cur !== displayCurrency) sorted[cur] = accs;
+    }
+    return sorted;
+  })();
+  
   const [mode, setMode]     = useState(editData ? 'single' : 'multi');
   const [rows, setRows]     = useState(() => Array.from({ length: NUM_ROWS }, () => makeRow(defaultAcc)));
   const [saving, setSaving] = useState(false);
@@ -170,7 +186,11 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
                     value={row.account}
                     onChange={e => setField(idx, 'account', Number(e.target.value))}
                   >
-                    {accountsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    {Object.entries(groupedAccounts).map(([cur, accs]) => (
+                      <optgroup key={cur} label={`${cur}${cur === displayCurrency && displayCurrency !== 'All' ? ' ★' : ''}`}>
+                        {accs.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </optgroup>
+                    ))}
                   </select>
                 </div>
               ))}
@@ -262,12 +282,20 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
                 <div className="sgl-field-group sgl-col-wide">
                   <label className="sgl-label">ACCOUNT</label>
                   <select className="sgl-select" value={sAccount ?? ''} onChange={e => setSAccount(Number(e.target.value))}>
-                    {accountsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    {Object.entries(groupedAccounts).map(([cur, accs]) => (
+                      <optgroup key={cur} label={`${cur}${cur === displayCurrency && displayCurrency !== 'All' ? ' ★' : ''}`}>
+                        {accs.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </optgroup>
+                    ))}
                   </select>
                   {isTransferType(sTxType) && !editData && (
                     <select className="sgl-select" style={{marginTop:'0.4rem'}} value={sCounter} onChange={e => setSCounter(e.target.value)}>
                       <option value="">{sTxType === 'transfer_out' ? 'Transfer to… (optional)' : 'Transfer from… (optional)'}</option>
-                      {accountsList.filter(a => a.id !== sAccount).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      {Object.entries(groupedAccounts).map(([cur, accs]) => (
+                        <optgroup key={cur} label={`${cur}${cur === displayCurrency && displayCurrency !== 'All' ? ' ★' : ''}`}>
+                          {accs.filter(a => a.id !== sAccount).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </optgroup>
+                      ))}
                     </select>
                   )}
                 </div>

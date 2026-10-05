@@ -426,26 +426,26 @@ function LeftSidebar({ appData, actions, onSignOut, onNavigate, onRefreshRates }
         {activeTab === 'accounts' && (
           <>
             <div className="nw-box">
-              <div className="nw-label">NET WORTH<span style={{fontSize:'0.5rem',marginLeft:4,opacity:0.7,fontWeight:500}}>{baseCurrency}</span></div>
+              <div className="nw-label">NET WORTH<span style={{fontSize:'0.5rem',marginLeft:4,opacity:0.7,fontWeight:500}}>{baseCurrency === 'All' ? 'Total' : baseCurrency}</span></div>
               <div className="nw-value" style={{color:shownNetWorth>=0?'var(--green)':'var(--red)'}}>
-                {isMultiCurrency && netWorthConverted != null ? '≈ ' : ''}{shownNetWorth>=0?'+':'-'}{fmt(Math.abs(shownNetWorth), false, baseCurrency)}
+                {isMultiCurrency && netWorthConverted != null ? '≈ ' : ''}{shownNetWorth>=0?'+':'-'}{fmt(Math.abs(shownNetWorth), false, baseCurrency === 'All' ? 'USD' : baseCurrency)}
               </div>
-              {isMultiCurrency && netWorthConverted == null && (
+              {isMultiCurrency && baseCurrency !== 'All' && netWorthConverted == null && (
                 <button
                   style={{marginTop:'0.3rem',fontSize:'0.58rem',color:'var(--text-3)',background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:3,textAlign:'left'}}
                   onClick={handleRefreshRates} disabled={refreshingRates}
-                  title="Other-currency accounts are excluded until exchange rates load"
+                  title="Switch to 'All' to see all accounts converted. Or load exchange rates to include other currencies."
                 >
                   <RefreshCw size={8} style={refreshingRates ? {animation:'spin 0.8s linear infinite'} : undefined}/>
-                  {refreshingRates ? 'Fetching rates…' : `${baseCurrency} accounts only · load rates`}
+                  {refreshingRates ? 'Fetching rates…' : `${baseCurrency} only · load rates`}
                 </button>
               )}
             </div>
             <div className="sb-sec-hdr">
               <span>ACCOUNTS</span>
-              <span className="sb-sec-count">{accounts.length}</span>
+              <span className="sb-sec-count">{baseCurrency === 'All' ? accounts.length : accounts.filter(acc => (acc.currency || 'USD') === baseCurrency).length}</span>
             </div>
-            {accounts.map(acc => (
+            {(baseCurrency === 'All' ? accounts : accounts.filter(acc => (acc.currency || 'USD') === baseCurrency)).map(acc => (
               <div className="acc-item" key={acc.id}
                 onClick={() => onNavigate('account-detail', acc)}
                 style={{cursor:'pointer'}}
@@ -464,7 +464,7 @@ function LeftSidebar({ appData, actions, onSignOut, onNavigate, onRefreshRates }
               <Archive size={12}/> Show Archived ({archived.length})
               <ChevronDown size={11} style={{marginLeft:'auto',transform:showArchived?'rotate(180deg)':'none',transition:'transform 0.2s'}}/>
             </div>
-            {showArchived && archived.map(acc => (
+            {showArchived && (baseCurrency === 'All' ? archived : archived.filter(acc => (acc.currency || 'USD') === baseCurrency)).map(acc => (
               <div className="acc-item archived" key={acc.id}>
                 <div>
                   <div className="acc-name">{acc.name}</div>
