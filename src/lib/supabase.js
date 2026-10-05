@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl            = import.meta.env.VITE_SUPABASE_URL;
-const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+// Supports both the Vite-conventional VITE_ prefix (local .env) and the
+// unprefixed names the Vercel Supabase integration creates automatically.
+const supabaseUrl            = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
+const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.SUPABASE_PUBLISHABLE_KEY;
 
 /**
  * True when the required env vars are present.
