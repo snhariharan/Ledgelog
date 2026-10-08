@@ -3,7 +3,7 @@
  * into everything the pages display. Works identically in demo and Supabase
  * mode, and makes the period selector real.
  */
-import { addMonthsISO, monthShort, parseISO, round2, toISODate } from '../helpers';
+import { ALL_VIEW_CURRENCY, addMonthsISO, monthShort, parseISO, round2, toISODate } from '../helpers';
 
 const pad = n => String(n).padStart(2, '0');
 
@@ -171,11 +171,12 @@ export function withDerived(raw, period, now = new Date(), fxRates = {}, display
   const filterSingleCurrency = baseCurrency !== 'All';
   const selectedCurrency = filterSingleCurrency ? baseCurrency : null;
 
-  // Normalize all transactions to display currency
+  // Normalize all transactions to the aggregation currency ("All" combines into ALL_VIEW_CURRENCY)
+  const aggCurrency = selectedCurrency ?? ALL_VIEW_CURRENCY;
   const transactions = raw.transactions.map(t => {
     const currency = curOf.get(t.account) ?? t.currency ?? 'USD';
-    const foreign = selectedCurrency && currency !== selectedCurrency;
-    const normalizedAmount = !foreign ? t.amount : (hasRates ? convertFX(t.amount, currency, selectedCurrency, fxRates) : null);
+    const foreign = currency !== aggCurrency;
+    const normalizedAmount = !foreign ? t.amount : (hasRates ? convertFX(t.amount, currency, aggCurrency, fxRates) : null);
     return { ...t, currency, normalizedAmount };
   });
 
@@ -219,7 +220,7 @@ export function withDerived(raw, period, now = new Date(), fxRates = {}, display
     summaryData: { income, expense },
     budgets: budgetStatus(raw.budgets ?? [], expensesData, range, live),
     netWorthByCurrency: netWorthByCurrency(allAccounts),
-    netWorthConverted: baseCurrency === 'All' ? netWorthConverted(allAccounts, 'USD', fxRates) : null,
+    netWorthConverted: baseCurrency === 'All' ? netWorthConverted(allAccounts, ALL_VIEW_CURRENCY, fxRates) : null,
   };
 }
 

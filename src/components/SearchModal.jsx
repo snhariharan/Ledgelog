@@ -37,7 +37,7 @@ function SearchModal({ transactions, onClose }) {
                 <div className="sr-meta">{tx.date} · {tx.account}</div>
               </div>
               <span className="sr-amt" style={{color:tx.amount<0?'var(--red)':'var(--green)'}}>
-                {fmt(tx.amount,true)}
+                {fmt(tx.amount, true, tx.currency)}
               </span>
             </div>
           ))}

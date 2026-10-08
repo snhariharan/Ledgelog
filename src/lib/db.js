@@ -98,8 +98,9 @@ export async function deleteTag(tagId) {
 
 // ─── TRANSACTIONS ─────────────────────────────────────────────────────────────
 
+// `*` (not an explicit list) so the app still loads before 06_transaction_details.sql adds status/url/details.
 const TX_SELECT = `
-  id, amount, description, date, is_deleted, notes, tx_type, transfer_group_id,
+  *,
   account:accounts ( id, name, currency ),
   tags:transaction_tags ( tag:tags ( id, name, color ) )
 `;
@@ -122,8 +123,18 @@ const mapTx = tx => {
     untagged:        tags.length === 0,
     type:            tx.tx_type,
     transferGroupId: tx.transfer_group_id ?? null,
+    status:          tx.status ?? 'cleared',
+    url:             tx.url ?? '',
+    details:         tx.details ?? {},
   };
 };
+
+/** status/url/details columns, sent only when non-default so un-migrated databases keep working. */
+const detailColumns = ({ status, url, details }) => ({
+  ...(status && status !== 'cleared' ? { status } : {}),
+  ...(url ? { url } : {}),
+  ...(details && Object.keys(details).length ? { details } : {}),
+});
 
 /** Fetch ALL transactions, paging past Supabase's 1000-row response cap. */
 export async function fetchTransactions(userId) {
@@ -145,7 +156,7 @@ export async function fetchTransactions(userId) {
 
 /**
  * Insert many transactions (with tags) in two round-trips.
- * @param rows [{accountId, amount, description, date, tagIds, notes, type, transferGroupId}]
+ * @param rows [{accountId, amount, description, date, tagIds, notes, type, transferGroupId, status, url, details}]
  * @returns inserted ids, in input order
  */
 export async function addTransactions(userId, rows) {
@@ -162,6 +173,7 @@ export async function addTransactions(userId, rows) {
       tx_type:           r.type ?? (r.amount < 0 ? 'expense' : 'income'),
       transfer_group_id: r.transferGroupId ?? null,
       is_untagged:       !(r.tagIds?.length),
+      ...detailColumns(r),
     })))
     .select('id');
   assertOk({ error }, 'addTransactions');
@@ -188,7 +200,8 @@ export async function permanentlyDeleteTransactions(ids) {
 }
 
 /** Update core fields; pass tagIds to also replace the tag set. */
-export async function updateTransaction(transactionId, { accountId, amount, description, date, notes, type, tagIds }) {
+/** Fields left undefined are untouched; pass status/url/details only when they changed. */
+export async function updateTransaction(transactionId, { accountId, amount, description, date, notes, type, tagIds, status, url, details }) {
   const patch = {};
   if (accountId   !== undefined) patch.account_id  = accountId;
   if (amount      !== undefined) patch.amount      = amount;
@@ -197,6 +210,9 @@ export async function updateTransaction(transactionId, { accountId, amount, desc
   if (notes       !== undefined) patch.notes       = notes;
   if (type        !== undefined) patch.tx_type     = type;
   if (tagIds      !== undefined) patch.is_untagged = tagIds.length === 0;
+  if (status      !== undefined) patch.status      = status;
+  if (url         !== undefined) patch.url         = url || null;
+  if (details     !== undefined) patch.details     = details;
 
   const { error } = await supabase.from('transactions').update(patch).eq('id', transactionId);
   assertOk({ error }, 'updateTransaction');

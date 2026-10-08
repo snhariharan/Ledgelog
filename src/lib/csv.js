@@ -76,7 +76,7 @@ export const parseAmount = raw => {
   return Number.isFinite(n) ? (neg ? -n : n) : NaN;
 };
 
-const TYPES = ['expense', 'income', 'refund', 'transfer_in', 'transfer_out'];
+const TYPES = ['expense', 'income', 'refund', 'transfer_in', 'transfer_out', 'investment', 'iou'];
 const splitTags = v => (Array.isArray(v) ? v : String(v ?? '').split(/[;,]/)).map(t => String(t).trim()).filter(Boolean);
 
 /**

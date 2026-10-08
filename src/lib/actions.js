@@ -77,13 +77,17 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
     for (const input of inputs) {
       const acc = findAccount({ accounts, archivedAccounts: raw.archivedAccounts }, input);
       if (!acc) throw new Error(`Unknown account "${input.accountName ?? input.accountId}".`);
-      const type = input.type ?? defaultType(input.amount);
+      // 'transfer' is the UI's source→destination transfer; store it as the outgoing leg.
+      const type = input.type === 'transfer' ? 'transfer_out' : (input.type ?? defaultType(input.amount));
       const names = canonicalTags(tags, rules ? applyRules(input.description, input.tags ?? [], raw.rules) : (input.tags ?? []));
       const base = {
         description: input.description, date: input.date, notes: input.notes ?? '',
         tags: names, tagIds: tagIdsOf(tags, names),
       };
-      const row = { ...base, accountId: acc.id, accountName: acc.name, amount: input.amount, type, transferGroupId: null };
+      const row = {
+        ...base, accountId: acc.id, accountName: acc.name, amount: input.amount, type, transferGroupId: null,
+        status: input.status ?? 'cleared', url: input.url ?? '', details: input.details ?? {},
+      };
       const counter = input.counterAccountId != null && (type === 'transfer_out' || type === 'transfer_in')
         ? findAccount(raw, { accountId: input.counterAccountId }) : null;
       if (counter) {
@@ -93,6 +97,7 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
         rows.push(row, {
           ...base, tags: [], tagIds: [], accountId: counter.id, accountName: counter.name,
           amount: -input.amount, type: type === 'transfer_out' ? 'transfer_in' : 'transfer_out', transferGroupId: group,
+          status: row.status, url: row.url, details: {},
         });
       } else rows.push(row);
     }
@@ -104,6 +109,7 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
     description: r.description, notes: r.notes, tags: r.tags, tagIds: r.tagIds,
     account: r.accountName, accountId: r.accountId, deleted: false, untagged: r.tags.length === 0,
     type: r.type, transferGroupId: r.transferGroupId,
+    status: r.status ?? 'cleared', url: r.url ?? '', details: r.details ?? {},
   });
 
   /** Commit rows (+ any newly created accounts/tags) to the active backend. */
@@ -144,7 +150,8 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
       return rows.length;
     },
 
-    async updateTransaction({ id, accountId, amount, description, date, tags: tagNames = [], notes = '', type }) {
+    async updateTransaction({ id, accountId, amount, description, date, tags: tagNames = [], notes = '', type, status, url, details }) {
+      if (type === 'transfer') type = 'transfer_out';
       const raw = getRaw();
       const old = raw.transactions.find(t => t.id === id);
       if (!old) throw new Error('Transaction not found.');
@@ -157,6 +164,7 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
         const updated = {
           ...old, accountId: acc.id, account: acc.name, amount, description, date: formatDisplayDate(date), rawDate: date,
           notes, tags: names, tagIds: tagIdsOf(tags, names), untagged: names.length === 0, type: type ?? old.type,
+          status: status ?? old.status, url: url ?? old.url, details: details ?? old.details,
         };
         setRaw(prev => ({
           ...prev,
@@ -165,7 +173,12 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
           transactions: prev.transactions.map(t => (t.id === id ? updated : t)),
         }));
       } else {
-        await db.updateTransaction(id, { accountId: acc.id, amount, description, date, notes, type, tagIds: tagIdsOf(tags, names) });
+        // Only send detail columns that changed, so un-migrated databases can still edit plain transactions.
+        const changed = (v, prev, dflt) => (v !== undefined && JSON.stringify(v) !== JSON.stringify(prev ?? dflt) ? v : undefined);
+        await db.updateTransaction(id, {
+          accountId: acc.id, amount, description, date, notes, type, tagIds: tagIdsOf(tags, names),
+          status: changed(status, old.status, 'cleared'), url: changed(url, old.url, ''), details: changed(details, old.details, {}),
+        });
         await reload();
       }
       return true;
@@ -177,7 +190,7 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
         description: t.description, date: t.rawDate, notes: t.notes ?? '', tags: t.tags ?? [], tagIds: t.tagIds ?? tagIdsOf(raw.tags, t.tags ?? []),
         accountId: t.accountId ?? findAccount(raw, { accountName: t.account })?.id, accountName: t.account,
         amount: t.amount, type: t.type === 'transfer_in' || t.type === 'transfer_out' ? defaultType(t.amount) : (t.type ?? defaultType(t.amount)),
-        transferGroupId: null,
+        transferGroupId: null, status: t.status ?? 'cleared', url: t.url ?? '', details: t.details ?? {},
       }));
       await insertRows(rows);
       return rows.length;

@@ -10,7 +10,9 @@ function makeRow(accountId) {
   return { id: Math.random(), desc: '', tags: [], amount: '', txType: 'expense', date: todayISO(), account: accountId };
 }
 
-const isTransferType = t => t === 'transfer_in' || t === 'transfer_out';
+const isTransferType = t => t === 'transfer' || t === 'transfer_in' || t === 'transfer_out';
+/** Investment subtypes that bring money into the account (the rest take it out). */
+const INVESTMENT_INFLOWS = ['sell', 'dividend', 'capital_gain'];
 
 function AddTransactionModal({ onClose, actions, tagsList, accountsList, editData, displayCurrency }) {
   const defaultAcc = accountsList[0]?.id ?? null;
@@ -47,6 +49,14 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
   const [sTags, setSTags]       = useState(editData?.tags ?? []);
   const [sRepeat, setSRepeat]   = useState('never');
   const [sMemo, setSMemo]       = useState(editData?.notes ?? '');
+  const det = editData?.details ?? {};
+  const [sInvestmentType, setSInvestmentType] = useState(det.investmentType ?? 'buy');
+  const [sIouType, setSIouType] = useState(det.iouType ?? 'shared_bill');
+  const [sPaidBy, setSPaidBy] = useState(det.paidBy ?? 'Me');
+  const [sSharedBy, setSSharedBy] = useState(det.sharedBy ?? 'Me');
+  const [sSharedByEmail, setSSharedByEmail] = useState(det.sharedByEmail ?? '');
+  const [sStatus, setSStatus] = useState(editData?.status ?? 'cleared');
+  const [sUrl, setSUrl] = useState(editData?.url ?? '');
   const [sErrors, setSErrors]   = useState({});
 
   useEffect(() => { firstRef.current?.focus(); }, [mode]);
@@ -95,6 +105,7 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
     if (!sDesc.trim()) e.desc = true;
     if (!sAmount || isNaN(parseFloat(sAmount)) || parseFloat(sAmount) <= 0) e.amount = true;
     if (sAccount == null) e.account = true;
+    if (sTxType === 'transfer' && !editData && !sCounter) e.counter = true;
     return e;
   };
 
@@ -104,8 +115,16 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
     setSaving(true);
     const meta = TX_TYPES.find(t => t.key === sTxType) ?? TX_TYPES[0];
     const num  = parseFloat(sAmount);
-    const amt  = meta.sign === '-' ? -num : num;
-    const base = { accountId: sAccount, amount: amt, description: sDesc.trim(), date: sDate, tags: sTags, notes: sMemo.trim(), type: sTxType };
+    const inflow = sTxType === 'investment' ? INVESTMENT_INFLOWS.includes(sInvestmentType) : meta.sign === '+';
+    const amt  = inflow ? num : -num;
+    const details =
+      sTxType === 'investment' ? { investmentType: sInvestmentType } :
+      sTxType === 'iou' ? { iouType: sIouType, paidBy: sPaidBy.trim(), sharedBy: sSharedBy.trim(), sharedByEmail: sSharedByEmail.trim() } :
+      {};
+    const base = {
+      accountId: sAccount, amount: amt, description: sDesc.trim(), date: sDate, tags: sTags, notes: sMemo.trim(), type: sTxType,
+      status: sStatus, url: sUrl.trim(), details,
+    };
     let ok;
     if (editData) {
       ok = await actions.updateTransaction({ id: editData.id, ...base });
@@ -226,17 +245,31 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
             <div className="sgl-body">
 
               {/* Row 1: TYPE dropdown */}
-              <div className="sgl-field-group">
-                <label className="sgl-label">TYPE</label>
-                <select
-                  className="sgl-select"
-                  value={sTxType}
-                  onChange={e => setSTxType(e.target.value)}
-                >
-                  {TX_TYPES.map(t => (
-                    <option key={t.key} value={t.key}>{t.label}</option>
-                  ))}
-                </select>
+              <div className="sgl-row">
+                <div className="sgl-field-group">
+                  <label className="sgl-label">TYPE <span title="Expense and income count toward totals. Transfers move money between your accounts. Investment and IOU entries change the account balance but are not counted as income or expense.">?</span></label>
+                  <select
+                    className="sgl-select"
+                    value={sTxType}
+                    onChange={e => setSTxType(e.target.value)}
+                  >
+                    {TX_TYPES.map(t => (
+                      <option key={t.key} value={t.key}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+                {sTxType === 'investment' && (
+                  <div className="sgl-field-group">
+                    <label className="sgl-label">INVESTMENT TYPE</label>
+                    <select className="sgl-select" value={sInvestmentType} onChange={e=>setSInvestmentType(e.target.value)}>
+                      <option value="buy">BUY</option>
+                      <option value="sell">SELL</option>
+                      <option value="dividend">DIVIDEND</option>
+                      <option value="capital_gain">CAPITAL GAIN</option>
+                      <option value="capital_loss">CAPITAL LOSS</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Row 2: DESCRIPTION + TAGS */}
@@ -280,7 +313,7 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
               {/* Row 4: ACCOUNT + REPEAT */}
               <div className="sgl-row">
                 <div className="sgl-field-group sgl-col-wide">
-                  <label className="sgl-label">ACCOUNT</label>
+                  <label className="sgl-label">{sTxType === 'transfer' ? 'ACCOUNT - SOURCE' : 'ACCOUNT'}</label>
                   <select className="sgl-select" value={sAccount ?? ''} onChange={e => setSAccount(Number(e.target.value))}>
                     {Object.entries(groupedAccounts).map(([cur, accs]) => (
                       <optgroup key={cur} label={`${cur}${cur === displayCurrency && displayCurrency !== 'All' ? ' ★' : ''}`}>
@@ -289,14 +322,17 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
                     ))}
                   </select>
                   {isTransferType(sTxType) && !editData && (
-                    <select className="sgl-select" style={{marginTop:'0.4rem'}} value={sCounter} onChange={e => setSCounter(e.target.value)}>
-                      <option value="">{sTxType === 'transfer_out' ? 'Transfer to… (optional)' : 'Transfer from… (optional)'}</option>
-                      {Object.entries(groupedAccounts).map(([cur, accs]) => (
-                        <optgroup key={cur} label={`${cur}${cur === displayCurrency && displayCurrency !== 'All' ? ' ★' : ''}`}>
-                          {accs.filter(a => a.id !== sAccount).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                        </optgroup>
-                      ))}
-                    </select>
+                    <div style={{marginTop:'1rem'}}>
+                      <label className="sgl-label">ACCOUNT - DESTINATION</label>
+                      <select className={`sgl-select${sErrors.counter ? ' invalid' : ''}`} value={sCounter} onChange={e => setSCounter(e.target.value)}>
+                        <option value="">{sTxType === 'transfer' ? 'SELECT' : 'SELECT (optional)'}</option>
+                        {Object.entries(groupedAccounts).map(([cur, accs]) => (
+                          <optgroup key={cur} label={`${cur}${cur === displayCurrency && displayCurrency !== 'All' ? ' ★' : ''}`}>
+                            {accs.filter(a => a.id !== sAccount).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
                   )}
                 </div>
                 <div className="sgl-field-group sgl-col-narrow">
@@ -312,8 +348,38 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
                 </div>
               </div>
 
+              {/* Row 4.5: IOU Fields */}
+              {sTxType === 'iou' && (
+                <>
+                  <div className="sgl-row">
+                    <div className="sgl-field-group sgl-col-wide">
+                      <label className="sgl-label">IOU TYPE <span title="Shared bill: a cost split with others. Loan: money lent or borrowed.">?</span></label>
+                      <select className="sgl-select" value={sIouType} onChange={e=>setSIouType(e.target.value)}>
+                        <option value="shared_bill">SHARED BILL</option>
+                        <option value="loan">LOAN</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="sgl-row" style={{marginTop:'1rem'}}>
+                    <div className="sgl-field-group sgl-col-wide">
+                      <label className="sgl-label">PAID BY</label>
+                      <input type="text" className="sgl-input" value={sPaidBy} onChange={e=>setSPaidBy(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="sgl-row" style={{marginTop:'1rem',flexDirection:'column',gap:'0.5rem'}}>
+                    <div className="sgl-field-group sgl-col-wide">
+                      <label className="sgl-label">SHARED BY</label>
+                      <input type="text" className="sgl-input" value={sSharedBy} onChange={e=>setSSharedBy(e.target.value)} />
+                    </div>
+                    <div className="sgl-field-group sgl-col-wide">
+                      <input type="text" className="sgl-input" placeholder="Email or name" value={sSharedByEmail} onChange={e=>setSSharedByEmail(e.target.value)} />
+                    </div>
+                  </div>
+                </>
+              )}
+
               {/* Row 5: MEMO + STATUS */}
-              <div className="sgl-row sgl-row-top">
+              <div className="sgl-row sgl-row-top" style={{marginTop:'1.5rem'}}>
                 <div className="sgl-field-group sgl-col-wide">
                   <label className="sgl-label">MEMO</label>
                   <textarea
@@ -322,6 +388,21 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
                     onChange={e => setSMemo(e.target.value)}
                     rows={4}
                   />
+                </div>
+                <div className="sgl-field-group sgl-col-narrow">
+                  <label className="sgl-label">STATUS <span title="Uncleared: not yet posted by the bank.">?</span></label>
+                  <select className="sgl-select" value={sStatus} onChange={e=>setSStatus(e.target.value)}>
+                    <option value="cleared">CLEARED</option>
+                    <option value="uncleared">UNCLEARED</option>
+                  </select>
+
+                </div>
+              </div>
+              
+              <div className="sgl-row" style={{marginTop:'1rem'}}>
+                <div className="sgl-field-group sgl-col-wide">
+                  <label className="sgl-label">URL</label>
+                  <input type="url" className="sgl-input" placeholder="https://…" value={sUrl} onChange={e=>setSUrl(e.target.value)} />
                 </div>
               </div>
 

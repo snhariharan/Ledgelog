@@ -120,13 +120,13 @@ describe('withDerived multi-currency (FX)', () => {
     expect(v.accounts).toHaveLength(2); // both accounts
     expect(v.rangedTransactions).toHaveLength(2); // both transactions
     // EUR -10 + INR -900 converted to USD: -10/0.9 + -900/90 ≈ -11.11 - 10 = -21.11
-    expect(v.summaryData.expense).toBeLessThan(-20);
+    expect(v.summaryData.expense).toBe(-21.11);
     expect(v.netWorthConverted).not.toBeNull(); // total net worth in USD
   });
   it('without rates, marks foreignExcluded when aggregating "All"', () => {
     const v = withDerived(raw, 'This Month', NOW, {}, 'All');
     expect(v.baseCurrency).toBe('All');
     expect(v.foreignExcluded).toBe(true); // can't convert without rates
-    // Should only count first currency since rates missing
+    expect(v.summaryData.expense).toBe(0); // neither account is in USD, so nothing can be combined
   });
 });

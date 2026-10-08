@@ -11,7 +11,13 @@ export const CURRENCY_SYMBOLS = {
 };
 export const CURRENCIES = Object.keys(CURRENCY_SYMBOLS);
 
-export const currencySymbol = code => CURRENCY_SYMBOLS[code] || code || '$';
+/** In the "All" display mode, cross-currency totals are converted to this currency. */
+export const ALL_VIEW_CURRENCY = 'USD';
+
+export const currencySymbol = code => {
+  const c = code === 'All' ? ALL_VIEW_CURRENCY : code;
+  return CURRENCY_SYMBOLS[c] || c || '$';
+};
 
 /** Round to 2 decimals, avoiding binary float drift (e.g. 0.1 + 0.2). */
 export const round2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -44,7 +50,7 @@ export const parseISO = iso => {
   return new Date(y, (m || 1) - 1, d || 1);
 };
 
-const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+export const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 export const MONTHS_LOWER = MONTHS_SHORT.map(m => m.toLowerCase());
 export const monthShort = i => MONTHS_SHORT[i];
 
@@ -76,10 +82,13 @@ export const PAGE_SIZE = 15;
 
 export const TX_TYPES = [
   {key:'expense',      label:'EXPENSE',      sign:'-', color:'#ef4444'},
+  {key:'transfer',     label:'TRANSFER',     sign:'-', color:'#f59e0b'},
   {key:'transfer_out', label:'TRANSFER OUT', sign:'-', color:'#f59e0b'},
   {key:'income',       label:'INCOME',       sign:'+', color:'#10b981'},
   {key:'refund',       label:'REFUND',       sign:'+', color:'#3b82f6'},
   {key:'transfer_in',  label:'TRANSFER IN',  sign:'+', color:'#8b5cf6'},
+  {key:'investment',   label:'INVESTMENT',   sign:'-', color:'#6366f1'},
+  {key:'iou',          label:'IOU',          sign:'-', color:'#d946ef'},
 ];
 export const PRESET_COLORS = ['#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6','#06b6d4','#3b82f6','#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899','#64748b'];
 export const ACCOUNT_TYPES = ['checking','savings','credit','investment','loan','cash','other'];

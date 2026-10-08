@@ -11,6 +11,7 @@ import { createActions } from './lib/actions';
 import { withDerived } from './lib/derive';
 import { getExchangeRates, invalidateRatesCache } from './lib/fx';
 import { getStored, setStored } from './helpers';
+import { useMediaQuery, MOBILE_QUERY } from './lib/useMediaQuery';
 
 import {
   budgetsData, transactionsData, accountsData, archivedAccountsData, tagsData,
@@ -23,6 +24,7 @@ import LeftSidebar from './components/LeftSidebar';
 import SearchModal from './components/SearchModal';
 import SettingsModal from './components/SettingsModal';
 import ErrorBoundary from './components/ErrorBoundary';
+import MobileDashboard from './components/MobileDashboard';
 
 import DashboardPage from './pages/DashboardPage';
 import InsightsPage from './pages/InsightsPage';
@@ -77,6 +79,7 @@ export default function App() {
   const [toast, setToast]             = useState(null);
   const [fxRates, setFxRates]         = useState({});
   const [currency, setCurrency]       = useState(null); // display currency; null = first account's
+  const isMobile = useMediaQuery(MOBILE_QUERY);
 
   const userId = session?.user?.id ?? null;
 
@@ -204,6 +207,8 @@ export default function App() {
   const displayEmail = session?.user?.email ?? 'Demo Mode';
   const pageKey = navDetail ? `${navDetail.type}:${navDetail.item?.id}` : navPage;
   const pageProps = { appData: view, actions, period, onPeriod: setPeriod };
+  // Phones get a compact list-style dashboard.
+  const mobileDash = isMobile && !navDetail && navPage === 'dashboard';
 
   return (
     <div className="app-shell">
@@ -298,7 +303,8 @@ export default function App() {
             {navDetail?.type === 'tag-detail' && (
               <TagDetailPage tag={view.tags.find(t => t.id === navDetail.item.id) ?? navDetail.item} allTransactions={view.transactions} accounts={view.accounts} currency={view.baseCurrency} onBack={() => setNavDetail(null)}/>
             )}
-            {!navDetail && navPage === 'dashboard'   && <DashboardPage   {...pageProps} onRefresh={IS_SUPABASE_CONFIGURED && !demoMode ? handleRefresh : null} refreshing={refreshing}/>}
+            {mobileDash && <MobileDashboard {...pageProps}/>}
+            {!mobileDash && !navDetail && navPage === 'dashboard' && <DashboardPage   {...pageProps} onRefresh={IS_SUPABASE_CONFIGURED && !demoMode ? handleRefresh : null} refreshing={refreshing}/>}
             {!navDetail && navPage === 'insights'    && <InsightsPage    {...pageProps}/>}
             {!navDetail && navPage === 'budgets'     && <BudgetsPage     {...pageProps}/>}
             {!navDetail && navPage === 'forecast'    && <ForecastPage    {...pageProps}/>}

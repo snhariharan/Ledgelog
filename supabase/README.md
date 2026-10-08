@@ -70,6 +70,11 @@ Paste and run [`05_hardening.sql`](./05_hardening.sql). **Required** for the cur
 
 > The balance trigger only affects writes made **after** it is installed. If you use the seed file, run it **before** `05`.
 
+### 06 — Transaction details
+Paste and run [`06_transaction_details.sql`](./06_transaction_details.sql). Adds `status`, `url` and `details` (JSON) to `transactions`, used by the Add Transaction form's Status, URL, Investment-type and IOU fields.
+
+> Until it's run, ordinary transactions still save normally; saving one with any of those fields set fails with a "column does not exist" error.
+
 #### Verify RLS (recommended)
 Sign in as two different users and, from the browser console of the app, confirm the second user gets zero rows from the first user's data:
 ```js

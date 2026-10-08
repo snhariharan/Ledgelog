@@ -3,6 +3,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import App from './App';
 
+// These tests exercise demo mode; keep a local .env from switching on Supabase.
+vi.mock('./lib/supabase', () => ({ supabase: null, IS_SUPABASE_CONFIGURED: false }));
+
 const renderApp = () => render(<StrictMode><App/></StrictMode>);
 const openPage = label => fireEvent.click(screen.getAllByText(label.toUpperCase())[0].closest('.nav-item'));
 
@@ -81,5 +84,19 @@ describe('App (demo mode)', () => {
     }
     openPage('Dashboard');
     expect(document.querySelector('.summary-strip').textContent).toContain('₹');
+  });
+
+  it('shows the compact dashboard on phone-sized screens', async () => {
+    vi.stubGlobal('matchMedia', query => ({
+      matches: true, media: query, addEventListener() {}, removeEventListener() {},
+    }));
+    try {
+      renderApp();
+      await screen.findByText('Ledgelog');
+      expect(document.querySelector('.mobile-dashboard')).not.toBeNull();
+      expect(document.querySelector('.top-nav')).not.toBeNull(); // page nav stays reachable
+      fireEvent.click(document.querySelector('.md-tx-item'));
+      expect(document.querySelector('.modal-box')).not.toBeNull(); // tapping a row opens edit
+    } finally { vi.unstubAllGlobals(); }
   });
 });

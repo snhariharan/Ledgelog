@@ -47,6 +47,28 @@ describe('transactions & balances (demo)', () => {
     expect(s.get().tags.map(t => t.name)).toContain('Subscription');
   });
 
+  it("a 'transfer' becomes a paired transfer_out / transfer_in", async () => {
+    const s = setup();
+    await s.actions.addTransactions([{ accountId: 1, counterAccountId: 3, amount: -200, description: 'Move', date: todayISO(), type: 'transfer' }]);
+    const legs = s.get().transactions;
+    expect(legs.map(t => t.type).sort()).toEqual(['transfer_in', 'transfer_out']);
+    expect(legs[0].transferGroupId).toBe(legs[1].transferGroupId);
+    expect(bal(s, 1)).toBe(800);
+    expect(bal(s, 3)).toBe(700);
+  });
+
+  it('keeps status, url and details through add and edit', async () => {
+    const s = setup();
+    await s.actions.addTransactions([{
+      accountId: 1, amount: -60, description: 'Dinner', date: todayISO(), type: 'iou',
+      status: 'uncleared', url: 'https://example.com/r', details: { iouType: 'shared_bill', paidBy: 'Me' },
+    }]);
+    const t = s.get().transactions[0];
+    expect(t).toMatchObject({ type: 'iou', status: 'uncleared', url: 'https://example.com/r', details: { iouType: 'shared_bill', paidBy: 'Me' } });
+    await s.actions.updateTransaction({ id: t.id, accountId: 1, amount: -60, description: 'Dinner', date: todayISO(), tags: [], status: 'cleared' });
+    expect(s.get().transactions[0]).toMatchObject({ status: 'cleared', url: 'https://example.com/r', details: { paidBy: 'Me' } });
+  });
+
   it('edit moves the balance effect between accounts', async () => {
     const s = setup();
     await s.actions.addTransactions([{ accountId: 1, amount: -100, description: 'x', date: todayISO() }]);

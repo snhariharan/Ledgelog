@@ -428,7 +428,7 @@ function LeftSidebar({ appData, actions, onSignOut, onNavigate, onRefreshRates }
             <div className="nw-box">
               <div className="nw-label">NET WORTH<span style={{fontSize:'0.5rem',marginLeft:4,opacity:0.7,fontWeight:500}}>{baseCurrency === 'All' ? 'Total' : baseCurrency}</span></div>
               <div className="nw-value" style={{color:shownNetWorth>=0?'var(--green)':'var(--red)'}}>
-                {isMultiCurrency && netWorthConverted != null ? '≈ ' : ''}{shownNetWorth>=0?'+':'-'}{fmt(Math.abs(shownNetWorth), false, baseCurrency === 'All' ? 'USD' : baseCurrency)}
+                {isMultiCurrency && netWorthConverted != null ? '≈ ' : ''}{shownNetWorth>=0?'+':'-'}{fmt(Math.abs(shownNetWorth), false, baseCurrency)}
               </div>
               {isMultiCurrency && baseCurrency !== 'All' && netWorthConverted == null && (
                 <button
