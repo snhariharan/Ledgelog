@@ -51,8 +51,16 @@ function TransactionsTable({ transactions: txns, tags, accounts = [], onAdd, onE
   const paginated  = sorted.slice((curPage-1)*pageSize, curPage*pageSize);
 
   const handleSort = col => {
-    if (sortCol===col) setSortDir(d=>d==='asc'?'desc':'asc');
-    else { setSortCol(col); setSortDir('asc'); }
+    if (col === 'date') {
+      // Date always sorts descending (newest first)
+      setSortCol('date');
+      setSortDir('desc');
+    } else if (sortCol===col) {
+      setSortDir(d=>d==='asc'?'desc':'asc');
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
     setPage(1);
   };
 
