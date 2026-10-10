@@ -119,6 +119,14 @@ describe('transactions & balances (demo)', () => {
     expect(s.get().transactions).toHaveLength(2);
     expect(bal(s, 1)).toBe(980);
   });
+
+  it('dates a duplicate today, whatever the original date was', async () => {
+    const s = setup();
+    await s.actions.addTransactions([{ accountId: 1, amount: -10, description: 'old', date: '2024-03-05' }]);
+    await s.actions.duplicateTransactions([s.get().transactions[0].id]);
+    const dates = s.get().transactions.map(t => t.rawDate).sort();
+    expect(dates).toEqual(['2024-03-05', todayISO()]);
+  });
 });
 
 describe('import (demo)', () => {

@@ -197,8 +197,9 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
       const raw = getRaw();
       const picked = raw.transactions.filter(t => ids.includes(t.id));
       for (const t of picked) assertWritable(raw, findAccount(raw, { accountId: t.accountId, accountName: t.account }));
+      const today = todayISO(); // a duplicate is a new entry: always dated today
       const rows = picked.map(t => ({
-        description: t.description, date: t.rawDate, notes: t.notes ?? '', tags: t.tags ?? [], tagIds: t.tagIds ?? tagIdsOf(raw.tags, t.tags ?? []),
+        description: t.description, date: today, notes: t.notes ?? '', tags: t.tags ?? [], tagIds: t.tagIds ?? tagIdsOf(raw.tags, t.tags ?? []),
         accountId: t.accountId ?? findAccount(raw, { accountName: t.account })?.id, accountName: t.account,
         amount: t.amount, type: t.type === 'transfer_in' || t.type === 'transfer_out' ? defaultType(t.amount) : (t.type ?? defaultType(t.amount)),
         transferGroupId: null, status: t.status ?? 'cleared', url: t.url ?? '', details: t.details ?? {},

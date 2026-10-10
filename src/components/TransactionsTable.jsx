@@ -180,7 +180,12 @@ function TransactionsTable({ transactions: txns, tags, accounts = [], onAdd, onE
               </td></tr>
             )}
             {paginated.map(tx=>(
-              <tr key={tx.id} className={selected.has(tx.id)?'row-sel':''}>
+              <tr key={tx.id} className={selected.has(tx.id)?'row-sel':''}
+                onDoubleClick={e=>{
+                  if (readOnly || isDeletedTab || !onEdit || e.target.closest('input,button')) return;
+                  window.getSelection()?.removeAllRanges();
+                  onEdit(tx.id);
+                }}>
                 <td className="th-chk">{!readOnly && <input type="checkbox" checked={selected.has(tx.id)} onChange={()=>toggleSel(tx.id)}/>}</td>
                 <td className="td-date">{tx.date}</td>
                 <td className="td-amt" style={{color:tx.amount<0?'var(--red)':'var(--green)'}}>{fmt(tx.amount, true, accounts.find(a => a.name === tx.account)?.currency || tx.currency || 'USD')}</td>
