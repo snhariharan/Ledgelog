@@ -7,7 +7,7 @@ import AddTransactionModal from '../components/AddTransactionModal';
 import PeriodSelect from '../components/PeriodSelect';
 
 function DashboardPage({ appData, actions, period, onPeriod, onRefresh, refreshing }) {
-  const { accounts, tags, budgets, expensesData, summaryData, baseCurrency, multiCurrency, foreignExcluded } = appData;
+  const { accounts, tags, budgets, expensesData, summaryData, baseCurrency, multiCurrency, foreignExcluded, rules } = appData;
   const [showAdd, setShowAdd] = useState(false);
   const [editTxn, setEditTxn] = useState(null);
 
@@ -89,6 +89,7 @@ function DashboardPage({ appData, actions, period, onPeriod, onRefresh, refreshi
           accountsList={accounts}
           editData={editTxn}
           displayCurrency={baseCurrency}
+          rules={rules}
         />
       )}
     </>

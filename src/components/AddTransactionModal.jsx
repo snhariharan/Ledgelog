@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Plus, X, RefreshCw } from 'lucide-react';
 import { TX_TYPES, todayISO, currencySymbol } from '../helpers';
 import { nextOccurrence } from '../lib/repeats';
+import { applyRules } from '../lib/rules';
 import TagInput from './TagInput';
 import TypePicker from './TypePicker';
 
@@ -14,7 +15,7 @@ const isTransferType = t => t === 'transfer' || t === 'transfer_in' || t === 'tr
 /** Investment subtypes that bring money into the account (the rest take it out). */
 const INVESTMENT_INFLOWS = ['sell', 'dividend', 'capital_gain'];
 
-function AddTransactionModal({ onClose, actions, tagsList, accountsList, editData, displayCurrency }) {
+function AddTransactionModal({ onClose, actions, tagsList, accountsList, editData, displayCurrency, rules = [] }) {
   const defaultAcc = accountsList[0]?.id ?? null;
   const getCurrencySymbol = accId => currencySymbol(accountsList.find(a => a.id === accId)?.currency || 'USD');
   const groupedAccounts = (() => {
@@ -60,6 +61,18 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
   const [sErrors, setSErrors]   = useState({});
 
   useEffect(() => { firstRef.current?.focus(); }, [mode]);
+
+  // Auto-apply rules to suggested tags based on description
+  useEffect(() => {
+    if (!rules || !rules.length || !sDesc.trim()) return;
+    const suggestedTags = applyRules(sDesc, [], rules);
+    const currentTags = new Set(sTags);
+    // Add suggested tags that aren't already selected
+    for (const tag of suggestedTags) {
+      if (!currentTags.has(tag)) currentTags.add(tag);
+    }
+    setSTags([...currentTags]);
+  }, [sDesc, rules]);
 
   // ── Multi helpers ──────────────────────────────────────────────────────────
   const setField = (idx, field, val) => {
