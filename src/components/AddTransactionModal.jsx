@@ -66,12 +66,7 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
   useEffect(() => {
     if (!rules || !rules.length || !sDesc.trim()) return;
     const suggestedTags = applyRules(sDesc, [], rules);
-    const currentTags = new Set(sTags);
-    // Add suggested tags that aren't already selected
-    for (const tag of suggestedTags) {
-      if (!currentTags.has(tag)) currentTags.add(tag);
-    }
-    setSTags([...currentTags]);
+    setSTags(prev => [...new Set([...prev, ...suggestedTags])]);
   }, [sDesc, rules]);
 
   // ── Multi helpers ──────────────────────────────────────────────────────────
@@ -328,6 +323,9 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
                 <div className="sgl-field-group sgl-col-wide">
                   <label className="sgl-label">{sTxType === 'transfer' ? 'ACCOUNT - SOURCE' : 'ACCOUNT'}</label>
                   <select className="sgl-select" value={sAccount ?? ''} onChange={e => setSAccount(Number(e.target.value))}>
+                    {editData && sAccount === editData.accountId && !accountsList.some(a => a.id === sAccount) && (
+                      <option value={sAccount}>{editData.account} (archived)</option>
+                    )}
                     {Object.entries(groupedAccounts).map(([cur, accs]) => (
                       <optgroup key={cur} label={`${cur}${cur === displayCurrency && displayCurrency !== 'All' ? ' ★' : ''}`}>
                         {accs.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}

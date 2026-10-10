@@ -41,6 +41,12 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
     [...raw.accounts, ...raw.archivedAccounts].find(a =>
       accountId != null ? a.id === accountId : accountName ? sameName(a.name, accountName) : false);
 
+  /** Archived accounts are read-only: their history stays, but nothing new goes in. */
+  const isArchived = (raw, acc) => !!acc && (raw.archivedAccounts ?? []).some(a => a.id === acc.id);
+  const assertWritable = (raw, acc) => {
+    if (isArchived(raw, acc)) throw new Error(`"${acc.name}" is archived. Unarchive it to add transactions.`);
+  };
+
   /** Create any accounts that don't exist yet (CSV import auto-detect). */
   async function ensureAccounts(raw, names, currencyOf = () => 'USD') {
     const created = [];
@@ -77,6 +83,7 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
     for (const input of inputs) {
       const acc = findAccount({ accounts, archivedAccounts: raw.archivedAccounts }, input);
       if (!acc) throw new Error(`Unknown account "${input.accountName ?? input.accountId}".`);
+      assertWritable(raw, acc);
       // 'transfer' is the UI's source→destination transfer; store it as the outgoing leg.
       const type = input.type === 'transfer' ? 'transfer_out' : (input.type ?? defaultType(input.amount));
       const names = canonicalTags(tags, rules ? applyRules(input.description, input.tags ?? [], raw.rules) : (input.tags ?? []));
@@ -92,6 +99,7 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
         ? findAccount(raw, { accountId: input.counterAccountId }) : null;
       if (counter) {
         if (counter.id === acc.id) throw new Error('Choose a different account for the transfer.');
+        assertWritable(raw, counter);
         const group = uuid();
         row.transferGroupId = group;
         rows.push(row, {
@@ -157,6 +165,7 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
       if (!old) throw new Error('Transaction not found.');
       const acc = findAccount(raw, { accountId });
       if (!acc) throw new Error('Unknown account.');
+      if (acc.id !== (old.accountId ?? findAccount(raw, { accountName: old.account })?.id)) assertWritable(raw, acc);
       const newTags = await ensureTags(raw, tagNames);
       const tags = [...raw.tags, ...newTags];
       const names = canonicalTags(tags, tagNames);
@@ -186,7 +195,9 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
 
     async duplicateTransactions(ids) {
       const raw = getRaw();
-      const rows = raw.transactions.filter(t => ids.includes(t.id)).map(t => ({
+      const picked = raw.transactions.filter(t => ids.includes(t.id));
+      for (const t of picked) assertWritable(raw, findAccount(raw, { accountId: t.accountId, accountName: t.account }));
+      const rows = picked.map(t => ({
         description: t.description, date: t.rawDate, notes: t.notes ?? '', tags: t.tags ?? [], tagIds: t.tagIds ?? tagIdsOf(raw.tags, t.tags ?? []),
         accountId: t.accountId ?? findAccount(raw, { accountName: t.account })?.id, accountName: t.account,
         amount: t.amount, type: t.type === 'transfer_in' || t.type === 'transfer_out' ? defaultType(t.amount) : (t.type ?? defaultType(t.amount)),
@@ -241,23 +252,19 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
       return true;
     },
 
-    /** CSV/JSON import. Skips rows already present (same date, amount, description, account). */
+    /** CSV/JSON import. Every row is added as-is (no duplicate detection). */
     async importTransactions(items, { accountId } = {}) {
       const raw = getRaw();
       const fixed = accountId != null ? findAccount(raw, { accountId }) : null;
-      const key = (d, a, desc, acc) => `${d}|${round2(a)}|${desc.trim().toLowerCase()}|${acc.trim().toLowerCase()}`;
-      const seen = new Set(raw.transactions.map(t => key(t.rawDate, t.amount, t.description, t.account)));
-      const inputs = [];
-      let skipped = 0;
-      for (const it of items) {
-        const accountName = fixed ? fixed.name : (it.account || raw.accounts[0]?.name || 'Imported');
-        const k = key(it.date, it.amount, it.description, accountName);
-        if (seen.has(k)) { skipped++; continue; }
-        seen.add(k);
-        inputs.push({ accountName, currency: it.currency, amount: it.amount, description: it.description, date: it.date, tags: it.tags ?? [], type: it.type, notes: it.notes ?? '' });
-      }
+      const inputs = items.map(it => ({
+        accountName: fixed ? fixed.name : (it.account || raw.accounts[0]?.name || 'Imported'),
+        currency: it.currency, amount: it.amount, description: it.description, date: it.date,
+        tags: it.tags ?? [], type: it.type, notes: it.notes ?? '',
+      }));
+      const archived = [...new Set(inputs.map(i => findAccount(raw, { accountName: i.accountName })).filter(a => isArchived(raw, a)).map(a => a.name))];
+      if (archived.length) throw new Error(`Can't import into archived account${archived.length > 1 ? 's' : ''} ${archived.map(n => `"${n}"`).join(', ')}. Unarchive ${archived.length > 1 ? 'them' : 'it'} first, then import.`);
       const added = inputs.length ? await impl.addTransactions(inputs) : 0;
-      return { added, skipped };
+      return { added };
     },
 
     // Accounts ───────────────────────────────────────────────────────────────
@@ -362,6 +369,7 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
       const raw = getRaw();
       const acc = findAccount(raw, { accountId }) ?? raw.accounts[0];
       if (!acc) throw new Error('Add an account first.');
+      assertWritable(raw, acc);
       if (demo) {
         setRaw(prev => ({
           ...prev,
@@ -389,7 +397,8 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
       const advanced = new Map();
       for (const r of raw.repeats) {
         if (!r.nextDateISO || r.nextDateISO > today) continue;
-        if (!findAccount(raw, { accountId: r.accountId, accountName: r.account })) continue;
+        const acc = findAccount(raw, { accountId: r.accountId, accountName: r.account });
+        if (!acc || isArchived(raw, acc)) continue; // archived accounts take no new transactions
         const { dates, next } = dueOccurrences(r, today);
         if (!dates.length) continue;
         if (!demo && !(await db.advanceRepeat(r.id, r.nextDateISO, next))) continue; // another tab got it

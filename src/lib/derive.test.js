@@ -130,3 +130,20 @@ describe('withDerived multi-currency (FX)', () => {
     expect(v.summaryData.expense).toBe(0); // neither account is in USD, so nothing can be combined
   });
 });
+
+describe('archived accounts in the list', () => {
+  it('shows archived accounts\' transactions, filtered by currency like active ones', () => {
+    const raw = {
+      accounts: [{ id: 1, name: 'A', currency: 'EUR', balance: 0 }],
+      archivedAccounts: [{ id: 2, name: 'Old', currency: 'EUR', balance: 0 }, { id: 3, name: 'OldUSD', currency: 'USD', balance: 0 }],
+      tags: [], budgets: [],
+      transactions: [
+        { id: 1, account: 'A', accountId: 1, amount: -1, rawDate: '2020-01-01', description: 'a' },
+        { id: 2, account: 'Old', accountId: 2, amount: -2, rawDate: '2020-01-01', description: 'b' },
+        { id: 3, account: 'OldUSD', accountId: 3, amount: -3, rawDate: '2020-01-01', description: 'c' },
+      ],
+    };
+    expect(withDerived(raw, 'All Time', new Date(), {}, 'EUR').transactions.map(t => t.id)).toEqual([1, 2]);
+    expect(withDerived(raw, 'All Time', new Date(), {}, 'All').transactions.map(t => t.id)).toEqual([1, 2, 3]);
+  });
+});

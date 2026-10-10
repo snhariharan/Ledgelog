@@ -106,7 +106,6 @@ export default function SettingsModal({ onClose, appData, actions, demoMode, the
       const result = await actions.importTransactions(parsed.items, { accountId: importAccount === 'auto' ? undefined : Number(importAccount) });
       if (!result) { setImportState({ status: '', msg: '', errors: [] }); return; } // action already showed the error
       const bits = [`Imported ${result.added}`];
-      if (result.skipped) bits.push(`skipped ${result.skipped} duplicate${result.skipped > 1 ? 's' : ''}`);
       if (parsed.errors.length) bits.push(`${parsed.errors.length} invalid row${parsed.errors.length > 1 ? 's' : ''} ignored`);
       setImportState({ status: 'success', msg: bits.join(', ') + '.', errors: parsed.errors.slice(0, 5) });
       setImportFile(null);
@@ -220,7 +219,7 @@ export default function SettingsModal({ onClose, appData, actions, demoMode, the
                         {importFile ? importFile.name : 'No file chosen'}
                       </span>
                     </div>
-                    <div className="form-note">Columns: Date, Description, Amount (required); Type, Tags, Account, Currency, Notes (optional). Rows already in your ledger are skipped.</div>
+                    <div className="form-note">Columns: Date, Description, Amount (required); Type, Tags, Account, Currency, Notes (optional).</div>
                   </div>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-2)', marginBottom: '1rem', cursor: 'pointer' }}>
                     <input type="checkbox" checked={importTags} onChange={e => setImportTags(e.target.checked)}/> Import tags from file

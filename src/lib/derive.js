@@ -195,7 +195,9 @@ export function withDerived(raw, period, now = new Date(), fxRates = {}, display
   const accounts = filterSingleCurrency
     ? allAccounts.filter(a => (a.currency || 'USD') === selectedCurrency)
     : allAccounts;
-  const accountNames = new Set(accounts.map(a => a.name));
+  // Archived accounts' history stays visible (they just take no new transactions).
+  const archived = (raw.archivedAccounts ?? []).filter(a => !filterSingleCurrency || (a.currency || 'USD') === selectedCurrency);
+  const accountNames = new Set([...accounts, ...archived].map(a => a.name));
 
   // Transactions: show all from filtered accounts
   const filtered = transactions.filter(t => accountNames.has(t.account));

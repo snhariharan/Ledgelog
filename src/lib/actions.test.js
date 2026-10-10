@@ -122,7 +122,7 @@ describe('transactions & balances (demo)', () => {
 });
 
 describe('import (demo)', () => {
-  it('creates missing accounts, skips duplicates, reports counts', async () => {
+  it('creates missing accounts and imports every row, without duplicate detection', async () => {
     const s = setup();
     const items = [
       { date: '2026-09-01', amount: -5, description: 'A', account: 'New Bank', tags: ['Food'] },
@@ -130,10 +130,33 @@ describe('import (demo)', () => {
       { date: '2026-09-02', amount: 7, description: 'B', account: 'Checking' },
     ];
     const res = await s.actions.importTransactions(items);
-    expect(res).toEqual({ added: 2, skipped: 1 });
+    expect(res).toEqual({ added: 3 });
     expect(s.get().accounts.some(a => a.name === 'New Bank')).toBe(true);
     const again = await s.actions.importTransactions(items);
-    expect(again).toEqual({ added: 0, skipped: 3 });
+    expect(again).toEqual({ added: 3 });
+  });
+});
+
+describe('archived accounts (demo)', () => {
+  const archivedSetup = () => setup({ archivedAccounts: [{ id: 9, name: 'Old Bank', type: 'checking', currency: 'USD', balance: 0 }] });
+
+  it('refuses new, duplicated, imported and recurring transactions', async () => {
+    const s = archivedSetup();
+    expect(await s.actions.addTransactions([{ accountId: 9, amount: -1, description: 'x', date: todayISO() }])).toBeUndefined();
+    expect(await s.actions.importTransactions([{ date: '2026-09-01', amount: -5, description: 'A', account: 'old bank' }])).toBeUndefined();
+    expect(await s.actions.addRepeat({ description: 'r', amount: -1, frequency: 'monthly', nextDate: todayISO(), accountId: 9 })).toBeUndefined();
+    expect(s.get().transactions).toHaveLength(0);
+    expect(s.errors.at(-1)).toMatch(/archived/);
+  });
+
+  it('keeps existing transactions editable but not movable into an archived account', async () => {
+    const s = archivedSetup();
+    s.get().transactions.push({ id: 50, accountId: 9, account: 'Old Bank', amount: -3, description: 'old', rawDate: '2020-01-01', tags: [] });
+    expect(await s.actions.updateTransaction({ id: 50, accountId: 9, amount: -4, description: 'old', date: '2020-01-01' })).toBe(true);
+    expect(await s.actions.duplicateTransactions([50])).toBeUndefined();
+    await s.actions.addTransactions([{ accountId: 1, amount: -1, description: 'new', date: todayISO() }]);
+    const id = s.get().transactions.find(t => t.description === 'new').id;
+    expect(await s.actions.updateTransaction({ id, accountId: 9, amount: -1, description: 'new', date: todayISO() })).toBeUndefined();
   });
 });
 
