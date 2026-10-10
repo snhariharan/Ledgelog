@@ -75,6 +75,11 @@ Paste and run [`06_transaction_details.sql`](./06_transaction_details.sql). Adds
 
 > Until it's run, ordinary transactions still save normally; saving one with any of those fields set fails with a "column does not exist" error.
 
+### 07 — Rule conditions
+Paste and run [`07_rule_conditions.sql`](./07_rule_conditions.sql). Adds a `conditions` column to `rules` so an auto-tag rule can combine several texts: any of (OR), all of (AND), and except (NOT).
+
+> Until it's run, existing single-text rules keep working; creating a combined rule shows a message asking you to run this file.
+
 #### Verify RLS (recommended)
 Sign in as two different users and, from the browser console of the app, confirm the second user gets zero rows from the first user's data:
 ```js

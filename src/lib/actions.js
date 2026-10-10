@@ -13,7 +13,7 @@
  * transaction change.
  */
 import * as db from './db';
-import { applyRules } from './rules';
+import { applyRules, parseTerms, STANDARD_RULES } from './rules';
 import { dueOccurrences } from './repeats';
 import { formatDisplayDate, round2, todayISO } from '../helpers';
 
@@ -449,12 +449,31 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
     },
 
     // Rules ──────────────────────────────────────────────────────────────────
-    async addRule({ name, matchText, tagId }) {
+    async addRule({ name, matchText: legacy, any = legacy ? [legacy] : [], all = [], none = [], tagId }) {
       const tag = getRaw().tags.find(t => t.id === tagId);
       if (!tag) throw new Error('Choose a tag.');
-      if (demo) setRaw(prev => ({ ...prev, rules: [...prev.rules, { id: nextId(), name, matchText, tagId, tagName: tag.name, active: true }] }));
-      else { await db.addRule(userId, { name, matchText, tagId }); await reload(); }
+      if (!any.length && !all.length) throw new Error('Add at least one text to look for.');
+      const matchText = any[0] ?? all[0];
+      if (demo) setRaw(prev => ({ ...prev, rules: [...prev.rules, { id: nextId(), name, matchText, any, all, none, tagId, tagName: tag.name, active: true }] }));
+      else { await db.addRule(userId, { name, matchText, tagId, any, all, none }); await reload(); }
       return true;
+    },
+    /** Add the starter rules that aren't there yet (by name), creating any missing tags. Returns how many were added. */
+    async addStandardRules() {
+      const raw = getRaw();
+      const have = new Set(raw.rules.map(r => r.name.toLowerCase()));
+      const todo = STANDARD_RULES.filter(r => !have.has(r.name.toLowerCase()));
+      if (!todo.length) return 0;
+      const newTags = await ensureTags(raw, todo.map(r => r.tag));
+      const tags = [...raw.tags, ...newTags];
+      const rules = todo.map(r => {
+        const any = parseTerms((r.any ?? []).join(',')), all = parseTerms((r.all ?? []).join(',')), none = parseTerms((r.none ?? []).join(','));
+        const tag = tags.find(t => sameName(t.name, r.tag));
+        return { name: r.name, matchText: any[0] ?? all[0], any, all, none, tagId: tag.id, tagName: tag.name, active: true };
+      });
+      if (demo) setRaw(prev => ({ ...prev, tags: [...prev.tags, ...newTags], rules: [...prev.rules, ...rules.map(r => ({ ...r, id: nextId() }))] }));
+      else { for (const r of rules) await db.addRule(userId, r); await reload(); }
+      return rules.length;
     },
     async setRuleActive(id, active) {
       if (demo) setRaw(prev => ({ ...prev, rules: prev.rules.map(r => (r.id === id ? { ...r, active } : r)) }));

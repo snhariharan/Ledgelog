@@ -137,6 +137,35 @@ describe('import (demo)', () => {
   });
 });
 
+describe('rules (demo)', () => {
+  it('creates a combined rule and uses it on new transactions', async () => {
+    const s = setup();
+    expect(await s.actions.addRule({ name: 'Market', any: ['market'], none: ['indian'], tagId: 1 })).toBe(true);
+    await s.actions.addTransactions([
+      { accountId: 1, amount: -1, description: 'S market', date: todayISO() },
+      { accountId: 1, amount: -1, description: 'Indian market', date: todayISO() },
+    ]);
+    const byDesc = d => s.get().transactions.find(t => t.description === d).tags;
+    expect(byDesc('S market')).toEqual(['Food']);
+    expect(byDesc('Indian market')).toEqual([]);
+  });
+
+  it('refuses a rule with no positive condition', async () => {
+    const s = setup();
+    expect(await s.actions.addRule({ name: 'x', none: ['a'], tagId: 1 })).toBeUndefined();
+    expect(s.errors.at(-1)).toMatch(/at least one/);
+  });
+
+  it('adds standard rules once, creating their tags', async () => {
+    const s = setup();
+    const n = await s.actions.addStandardRules();
+    expect(n).toBeGreaterThan(5);
+    expect(s.get().rules.length).toBe(1 + n);
+    expect(s.get().tags.some(t => t.name === 'Grocery')).toBe(true);
+    expect(await s.actions.addStandardRules()).toBe(0);
+  });
+});
+
 describe('archived accounts (demo)', () => {
   const archivedSetup = () => setup({ archivedAccounts: [{ id: 9, name: 'Old Bank', type: 'checking', currency: 'USD', balance: 0 }] });
 

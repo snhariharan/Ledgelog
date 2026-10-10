@@ -366,20 +366,25 @@ export async function fetchFavorites(userId) {
 // ─── RULES ────────────────────────────────────────────────────────────────────
 
 export async function fetchRules(userId) {
-  const { data, error } = await supabase
-    .from('rules')
-    .select('id, name, match_text, tag_id, is_active, tag:tags ( name )')
-    .eq('user_id', userId)
-    .order('sort_order')
-    .order('id');
+  const query = cols => supabase.from('rules').select(cols).eq('user_id', userId).order('sort_order').order('id');
+  let { data, error } = await query('id, name, match_text, conditions, tag_id, is_active, tag:tags ( name )');
+  // Databases that haven't run 07_rule_conditions.sql yet: single-term rules only.
+  if (error) ({ data, error } = await query('id, name, match_text, tag_id, is_active, tag:tags ( name )'));
   assertOk({ error }, 'fetchRules');
   return (data ?? []).map(r => ({
     id: r.id, name: r.name, matchText: r.match_text, tagId: r.tag_id, tagName: r.tag?.name ?? '?', active: r.is_active,
+    any: r.conditions?.any ?? [], all: r.conditions?.all ?? [], none: r.conditions?.none ?? [],
   }));
 }
 
-export async function addRule(userId, { name, matchText, tagId }) {
-  const { error } = await supabase.from('rules').insert({ user_id: userId, name, match_text: matchText, tag_id: tagId });
+export async function addRule(userId, { name, matchText, tagId, any = [], all = [], none = [] }) {
+  const row = { user_id: userId, name, match_text: matchText, tag_id: tagId };
+  const simple = any.length <= 1 && !all.length && !none.length;
+  if (!simple) row.conditions = { any, all, none };
+  const { error } = await supabase.from('rules').insert(row);
+  if (error && !simple && /conditions/i.test(error.message)) {
+    throw new Error('Combined rules need a database update: run supabase/07_rule_conditions.sql, then try again.');
+  }
   assertOk({ error }, 'addRule');
 }
 

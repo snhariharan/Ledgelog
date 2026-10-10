@@ -71,7 +71,14 @@ function AddTransactionModal({ onClose, actions, tagsList, accountsList, editDat
 
   // ── Multi helpers ──────────────────────────────────────────────────────────
   const setField = (idx, field, val) => {
-    setRows(r => r.map((row, i) => i === idx ? { ...row, [field]: val } : row));
+    setRows(r => r.map((row, i) => {
+      if (i !== idx) return row;
+      if (field !== 'desc') return { ...row, [field]: val };
+      // Swap the tags the rules added for the previous text with those for the new text.
+      const auto = applyRules(val, [], rules);
+      const tags = [...new Set([...row.tags.filter(t => !(row.autoTags ?? []).includes(t)), ...auto])];
+      return { ...row, desc: val, tags, autoTags: auto };
+    }));
     setErrors(e => { const n = { ...e }; delete n[idx]; return n; });
   };
 

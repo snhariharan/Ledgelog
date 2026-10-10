@@ -1,28 +1,45 @@
 import React, { useState } from 'react';
-import { ListChecks, Plus, Trash2 } from 'lucide-react';
+import { ListChecks, Plus, Trash2, Sparkles } from 'lucide-react';
 import Modal from '../components/Modal';
+import { describeRule, parseTerms, ruleMatches } from '../lib/rules';
 
 function RuleModal({ tags, onClose, onSave }) {
   const [name, setName] = useState('');
-  const [text, setText] = useState('');
+  const [anyText, setAnyText] = useState('');
+  const [allText, setAllText] = useState('');
+  const [noneText, setNoneText] = useState('');
   const [tagId, setTagId] = useState(tags[0]?.id ?? '');
+  const [sample, setSample] = useState('');
   const [err, setErr] = useState('');
+
+  const draft = { any: parseTerms(anyText), all: parseTerms(allText), none: parseTerms(noneText) };
+  const ready = draft.any.length > 0 || draft.all.length > 0;
+  const tagName = tags.find(t => t.id === Number(tagId))?.name;
 
   const submit = async e => {
     e.preventDefault();
-    if (!text.trim()) return setErr('Enter the text to look for in the description.');
+    if (!ready) return setErr('Enter at least one text to look for in the description.');
     if (!tagId) return setErr('Choose a tag to apply.');
-    const tagName = tags.find(t => t.id === Number(tagId))?.name;
-    if (await onSave({ name: name.trim() || `${text.trim()} → ${tagName}`, matchText: text.trim(), tagId: Number(tagId) })) onClose();
+    const label = name.trim() || `${draft.any[0] ?? draft.all[0]} → ${tagName}`;
+    if (await onSave({ name: label, ...draft, tagId: Number(tagId) })) onClose();
   };
   return (
     <Modal title="New Rule" onClose={onClose}>
       <form onSubmit={submit} style={{display:'flex',flexDirection:'column',gap:'0.85rem'}}>
         {err && <div className="form-err">{err}</div>}
         <div className="form-group">
-          <label className="form-label">IF DESCRIPTION CONTAINS</label>
-          <input className="form-input" value={text} onChange={e => setText(e.target.value)} placeholder="e.g. Netflix" autoFocus/>
+          <label className="form-label">IF DESCRIPTION CONTAINS ANY OF (OR)</label>
+          <input className="form-input" value={anyText} onChange={e => setAnyText(e.target.value)} placeholder="e.g. S market, K market, Prisma" autoFocus/>
         </div>
+        <div className="form-group">
+          <label className="form-label">AND ALSO CONTAINS ALL OF (AND) — optional</label>
+          <input className="form-input" value={allText} onChange={e => setAllText(e.target.value)} placeholder="e.g. bill"/>
+        </div>
+        <div className="form-group">
+          <label className="form-label">EXCEPT IF IT CONTAINS (NOT) — optional</label>
+          <input className="form-input" value={noneText} onChange={e => setNoneText(e.target.value)} placeholder="e.g. indian, refund"/>
+        </div>
+        <div className="form-note">Separate several texts with commas. Matching ignores upper/lower case.</div>
         <div className="form-group">
           <label className="form-label">THEN ADD TAG</label>
           <select className="form-input" value={tagId} onChange={e => setTagId(e.target.value)}>
@@ -32,6 +49,15 @@ function RuleModal({ tags, onClose, onSave }) {
         <div className="form-group">
           <label className="form-label">NAME (optional)</label>
           <input className="form-input" value={name} onChange={e => setName(e.target.value)}/>
+        </div>
+        <div className="form-group">
+          <label className="form-label">TRY IT — type a sample description</label>
+          <input className="form-input" value={sample} onChange={e => setSample(e.target.value)} placeholder="e.g. Prisma Iso Omena"/>
+          {sample.trim() && ready && (
+            <div style={{fontSize:'0.72rem',marginTop:'0.3rem',color: ruleMatches(draft, sample) ? 'var(--green)' : 'var(--text-3)'}}>
+              {ruleMatches(draft, sample) ? `✓ Would add tag: ${tagName}` : '✗ Rule would not match'}
+            </div>
+          )}
         </div>
         <div style={{display:'flex',gap:'0.5rem',justifyContent:'flex-end'}}>
           <button type="button" className="btn-sec" onClick={onClose}>Cancel</button>
@@ -45,6 +71,15 @@ function RuleModal({ tags, onClose, onSave }) {
 function RulesPage({ appData, actions }) {
   const { rules, tags } = appData;
   const [showNew, setShowNew] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState('');
+
+  const addStandard = async () => {
+    setBusy(true);
+    const n = await actions.addStandardRules();
+    setBusy(false);
+    if (n !== undefined) setInfo(n ? `Added ${n} standard rule${n > 1 ? 's' : ''}.` : 'All standard rules are already there.');
+  };
 
   const remove = r => { if (window.confirm(`Delete rule "${r.name}"?`)) actions.deleteRule(r.id); };
 
@@ -56,6 +91,7 @@ function RulesPage({ appData, actions }) {
           <span className="page-ttl">Rules</span>
         </div>
         <div className="sub-hdr-right">
+          <button className="btn-outline" style={{marginRight:6}} onClick={addStandard} disabled={busy}><Sparkles size={12}/> Add Standard Rules</button>
           <button className="btn-pri" onClick={() => setShowNew(true)} disabled={tags.length === 0}><Plus size={12}/> New Rule</button>
         </div>
       </div>
@@ -65,7 +101,8 @@ function RulesPage({ appData, actions }) {
             <span className="widget-ttl">Auto-tag Rules</span>
             <span style={{fontSize:'0.7rem',color:'var(--text-3)'}}>{rules.filter(r=>r.active).length} active</span>
           </div>
-          {rules.length === 0 && <div className="empty-state" style={{padding:'1.5rem'}}>No rules yet.</div>}
+          {info && <div style={{fontSize:'0.75rem',color:'var(--green)',padding:'0.4rem 0.5rem'}}>{info}</div>}
+          {rules.length === 0 && <div className="empty-state" style={{padding:'1.5rem'}}>No rules yet. Create one, or use “Add Standard Rules” for a starter set.</div>}
           <div style={{display:'flex',flexDirection:'column',marginTop:'0.5rem'}}>
             {rules.map((rule,i) => (
               <div key={rule.id} style={{
@@ -90,7 +127,7 @@ function RulesPage({ appData, actions }) {
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:600,fontSize:'0.82rem'}}>{rule.name}</div>
                   <div style={{fontSize:'0.7rem',color:'var(--text-3)',marginTop:'2px'}}>
-                    IF description contains "{rule.matchText}" → add tag: {rule.tagName}
+                    IF description {describeRule(rule)} → add tag: {rule.tagName}
                   </div>
                 </div>
                 <button
@@ -107,9 +144,11 @@ function RulesPage({ appData, actions }) {
         <div className="widget-card" style={{marginTop:'1rem'}}>
           <div className="widget-hdr"><span className="widget-ttl">How Rules Work</span></div>
           <div style={{fontSize:'0.8rem',color:'var(--text-2)',lineHeight:'1.6',padding:'0.5rem 0'}}>
-            When you add or import a transaction, every active rule whose text appears in the description
-            (case-insensitive) adds its tag. Rules run on new transactions only; editing an existing
-            transaction never changes its tags.
+            When you add or import a transaction, every active rule that matches the description
+            (case-insensitive) adds its tag. A rule can combine conditions: <strong>any of</strong> a list of
+            texts (OR), <strong>all of</strong> another list (AND), and <strong>except</strong> when certain
+            texts appear (NOT). Rules run on new transactions only; editing an existing transaction never
+            changes its tags.
           </div>
         </div>
       </div>

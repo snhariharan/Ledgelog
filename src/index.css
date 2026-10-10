@@ -735,8 +735,8 @@ select.form-input option {
 .main-scroll::-webkit-scrollbar { width: 5px; }
 .main-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 5px; }
 
-/* Transactions section gets remaining space so table breathes */
-.txn-section { flex: 1; min-height: 280px; }
+/* Transactions section grows with its rows (the page scrolls), never clips them */
+.txn-section { flex: 0 0 auto; min-height: 280px; }
 
 /* ═══════════════════════════════════════════════════════
    SUMMARY STRIP — compact
