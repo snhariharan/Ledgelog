@@ -15,7 +15,7 @@
 import * as db from './db';
 import { applyRules, parseTerms, STANDARD_RULES } from './rules';
 import { dueOccurrences } from './repeats';
-import { formatDisplayDate, round2, todayISO } from '../helpers';
+import { formatDisplayDate, round2, todayISO, PRESET_COLORS } from '../helpers';
 
 const balanceDelta = (acc, amount) => (acc.type === 'credit' ? -amount : amount);
 const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -331,6 +331,22 @@ export function createActions({ userId, demo, getRaw, setRaw, reload, notify }) 
           rules: prev.rules.map(r => (r.tagId === id ? { ...r, tagName: name } : r)),
         }));
       } else { await db.updateTag(id, { name, color }); await reload(); }
+      return true;
+    },
+    async randomizeTagColors() {
+      const raw = getRaw();
+      const palette = [...PRESET_COLORS];
+      for (let i = palette.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [palette[i], palette[j]] = [palette[j], palette[i]];
+      }
+      const colorFor = i => palette[i % palette.length];
+      if (demo) {
+        setRaw(prev => ({ ...prev, tags: prev.tags.map((t, i) => ({ ...t, color: colorFor(i) })) }));
+      } else {
+        await Promise.all(raw.tags.map((t, i) => db.updateTag(t.id, { name: t.name, color: colorFor(i) })));
+        await reload();
+      }
       return true;
     },
     async deleteTag(id) {

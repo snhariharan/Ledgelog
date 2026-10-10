@@ -214,6 +214,15 @@ describe('accounts, tags, budgets (demo)', () => {
     expect(s.get().transactions[0]).toMatchObject({ account: 'Main', tags: ['Meals'] });
   });
 
+  it('randomizes every tag color in one call, without touching names', async () => {
+    const s = setup();
+    const before = s.get().tags.map(t => ({ id: t.id, name: t.name, color: t.color }));
+    await s.actions.randomizeTagColors();
+    const after = s.get().tags;
+    expect(after.map(t => ({ id: t.id, name: t.name }))).toEqual(before.map(({ id, name }) => ({ id, name })));
+    expect(new Set(after.map(t => t.color)).size).toBe(after.length);
+  });
+
   it('deleting a tag strips it from transactions and removes its budget', async () => {
     const s = setup();
     await s.actions.addTransactions([{ accountId: 1, amount: -1, description: 'x', date: todayISO(), tags: ['Food'] }]);

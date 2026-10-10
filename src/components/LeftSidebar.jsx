@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Landmark, Calendar, Tag, Users, Star, Plus,
   PlusCircle, Edit2, Trash2, Archive, LogOut,
-  ChevronDown, X, RefreshCw,
+  ChevronDown, X, RefreshCw, Shuffle,
 } from 'lucide-react';
 import { fmt, PRESET_COLORS, ACCOUNT_TYPES, CURRENCIES, REPEAT_FREQS, todayISO } from '../helpers';
 
@@ -162,6 +162,8 @@ function AddTagModal({ tags, onClose, onAdd }) {
   const [color,  setColor]  = useState('#3b82f6');
   const [err,    setErr]    = useState('');
 
+  const randomizeColor = () => setColor(PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)]);
+
   const submit = async e => {
     e.preventDefault();
     if (!name.trim()) return setErr('Tag name is required.');
@@ -185,9 +187,12 @@ function AddTagModal({ tags, onClose, onAdd }) {
             ))}
             <input type="color" className="color-custom" value={color} onChange={e=>setColor(e.target.value)} title="Custom color"/>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:'0.5rem',marginTop:'0.4rem'}}>
-            <span style={{width:16,height:16,borderRadius:'50%',background:color,display:'inline-block',border:'2px solid var(--border)'}}/>
-            <span style={{fontSize:'0.72rem',color:'var(--text-3)'}}>{name||'Preview'}</span>
+          <div style={{display:'flex',alignItems:'center',gap:'0.5rem',marginTop:'0.4rem',justifyContent:'space-between'}}>
+            <div style={{display:'flex',alignItems:'center',gap:'0.5rem'}}>
+              <span style={{width:16,height:16,borderRadius:'50%',background:color,display:'inline-block',border:'2px solid var(--border)'}}/>
+              <span style={{fontSize:'0.72rem',color:'var(--text-3)'}}>{name||'Preview'}</span>
+            </div>
+            <button type="button" className="btn-sec" style={{fontSize:'0.7rem',padding:'3px 8px'}} onClick={randomizeColor}>Random</button>
           </div>
         </div>
         <div style={{display:'flex',gap:'0.5rem',justifyContent:'flex-end'}}>
@@ -217,6 +222,10 @@ function EditTagsModal({ tags, onClose, onUpdate, onDelete }) {
               <div style={{position:'relative'}}>
                 <input type="color" style={{width:28,height:28,padding:0,border:'none',background:'none',cursor:'pointer',borderRadius:4}} value={draft.color} onChange={e=>setDraft({...draft,color:e.target.value})}/>
               </div>
+              <button type="button" className="icon-btn" title="Randomize color"
+                onClick={()=>setDraft(d=>({...d,color:PRESET_COLORS[Math.floor(Math.random()*PRESET_COLORS.length)]}))}>
+                <Shuffle size={12}/>
+              </button>
               <button className="btn-pri" style={{fontSize:'0.7rem',padding:'3px 10px'}} onClick={save}>✓</button>
               <button className="btn-sec" style={{fontSize:'0.7rem',padding:'3px 6px'}} onClick={()=>setEditing(null)}>✕</button>
             </div>
@@ -577,6 +586,7 @@ function LeftSidebar({ appData, actions, onSignOut, onNavigate, onRefreshRates }
           <>
             <button className="sb-action-btn" onClick={()=>setShowAddTag(true)}><PlusCircle size={12}/> ADD</button>
             <button className="sb-action-btn" onClick={()=>setShowEditTag(true)}><Edit2 size={12}/> EDIT</button>
+            <button className="sb-action-btn" onClick={()=>actions.randomizeTagColors()} title="Randomize all tag colors"><Shuffle size={12}/> RANDOMIZE</button>
           </>
         )}
         {activeTab === 'ious' && (
