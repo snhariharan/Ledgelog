@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { LayoutDashboard, RefreshCw } from 'lucide-react';
-import { fmt } from '../helpers';
+import { fmt, tagMinAmount } from '../helpers';
 import { DonutChart, BudgetsWidget } from '../components/DonutChart';
 import TransactionsTable from '../components/TransactionsTable';
 import AddTransactionModal from '../components/AddTransactionModal';
@@ -66,7 +66,7 @@ function DashboardPage({ appData, actions, period, onPeriod, onRefresh, refreshi
               <span className="widget-ttl">Expenses by Tag</span>
               <span className="widget-per">{period}</span>
             </div>
-            <DonutChart data={expensesData} currency={baseCurrency}/>
+            <DonutChart data={expensesData.filter(e => -e.amount >= tagMinAmount(baseCurrency))} currency={baseCurrency}/>
           </div>
           <BudgetsWidget budgets={budgets} period={period} currency={baseCurrency}/>
         </div>

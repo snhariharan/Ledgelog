@@ -158,7 +158,18 @@ export function topMovers(current, previous, tags) {
  * Lists (`rangedTransactions`) always keep every currency, in its own units.
  */
 export function withDerived(raw, period, now = new Date(), fxRates = {}, displayCurrency = null) {
-  const allAccounts = raw.accounts ?? [];
+  // Future-dated transactions are "scheduled": listed, but they don't touch
+  // balances or totals until their date arrives.
+  const today = toISODate(now);
+  const isFuture = t => !t.deleted && t.rawDate > today;
+  const accountsAsOfToday = list => list.map(a => {
+    let pending = 0;
+    for (const t of raw.transactions) {
+      if (isFuture(t) && (t.accountId != null ? t.accountId === a.id : t.account === a.name)) pending += t.amount;
+    }
+    return pending ? { ...a, balance: round2(a.balance - (a.type === 'credit' ? -pending : pending)) } : a;
+  });
+  const allAccounts = accountsAsOfToday(raw.accounts ?? []);
   const curOf = new Map([...allAccounts, ...(raw.archivedAccounts ?? [])].map(a => [a.name, a.currency || 'USD']));
   const currencies = [...new Set(allAccounts.map(a => a.currency || 'USD'))];
   const isMultiCurrency = currencies.length > 1;
@@ -177,7 +188,7 @@ export function withDerived(raw, period, now = new Date(), fxRates = {}, display
     const currency = curOf.get(t.account) ?? t.currency ?? 'USD';
     const foreign = currency !== aggCurrency;
     const normalizedAmount = !foreign ? t.amount : (hasRates ? convertFX(t.amount, currency, aggCurrency, fxRates) : null);
-    return { ...t, currency, normalizedAmount };
+    return { ...t, currency, normalizedAmount, scheduled: isFuture(t) };
   });
 
   // Filter accounts: if single currency selected, show only those; if "All", show all
@@ -188,13 +199,13 @@ export function withDerived(raw, period, now = new Date(), fxRates = {}, display
 
   // Transactions: show all from filtered accounts
   const filtered = transactions.filter(t => accountNames.has(t.account));
-  const live = filtered.filter(t => !t.deleted);
+  const live = filtered.filter(t => !t.deleted && !t.scheduled);
   const range = periodRange(period, now);
-  const allRanged = live.filter(t => inRange(t.rawDate, range));
+  const allRanged = filtered.filter(t => !t.deleted && inRange(t.rawDate, range));
 
   // For aggregations, use normalized amounts where available; exclude foreign if rates missing
   const foreignExcluded = !hasRates && isMultiCurrency && baseCurrency === 'All';
-  const aggregationTxns = allRanged.map(t => {
+  const aggregationTxns = allRanged.filter(t => !t.scheduled).map(t => {
     if (foreignExcluded && t.normalizedAmount === null) return null;
     return { ...t, amount: t.normalizedAmount ?? t.amount };
   }).filter(Boolean);

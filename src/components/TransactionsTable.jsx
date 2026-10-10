@@ -3,7 +3,7 @@ import {
   ArrowUpDown, Edit2, Copy, Printer, Trash2, Search,
   MoreHorizontal, FileText, Plus, RotateCcw,
 } from 'lucide-react';
-import { fmt, PAGE_SIZE } from '../helpers';
+import { fmt, PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../helpers';
 
 function TransactionsTable({ transactions: txns, tags, accounts = [], onAdd, onEdit, actions, readOnly = false }) {
   const [activeTab, setActiveTab] = useState('all');
@@ -12,6 +12,7 @@ function TransactionsTable({ transactions: txns, tags, accounts = [], onAdd, onE
   const [sortDir, setSortDir]     = useState('desc');
   const [searchQ, setSearchQ]     = useState('');
   const [page, setPage]           = useState(1);
+  const [pageSize, setPageSize]   = useState(PAGE_SIZE);
   const [ctxMenu, setCtxMenu]     = useState(null);
   useEffect(() => {
     const close = () => setCtxMenu(null);
@@ -45,9 +46,9 @@ function TransactionsTable({ transactions: txns, tags, accounts = [], onAdd, onE
     });
   }, [searched, sortCol, sortDir]);
 
-  const totalPages = Math.max(1, Math.ceil(sorted.length/PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(sorted.length/pageSize));
   const curPage    = Math.min(page, totalPages);
-  const paginated  = sorted.slice((curPage-1)*PAGE_SIZE, curPage*PAGE_SIZE);
+  const paginated  = sorted.slice((curPage-1)*pageSize, curPage*pageSize);
 
   const handleSort = col => {
     if (sortCol===col) setSortDir(d=>d==='asc'?'desc':'asc');
@@ -137,7 +138,10 @@ function TransactionsTable({ transactions: txns, tags, accounts = [], onAdd, onE
         <div className="tb-right">
           {sorted.length>0 ? (
             <>
-              <span className="page-info">{(curPage-1)*PAGE_SIZE+1}–{Math.min(curPage*PAGE_SIZE,sorted.length)} of {sorted.length}</span>
+              <select className="page-size" value={pageSize} onChange={e=>{setPageSize(Number(e.target.value));setPage(1);}}>
+                {PAGE_SIZE_OPTIONS.map(n=><option key={n} value={n}>{n} / page</option>)}
+              </select>
+              <span className="page-info">{(curPage-1)*pageSize+1}–{Math.min(curPage*pageSize,sorted.length)} of {sorted.length}</span>
               <button className="pnav" disabled={curPage===1} onClick={()=>setPage(1)}>«</button>
               <button className="pnav" disabled={curPage===1} onClick={()=>setPage(p=>p-1)}>‹</button>
               <button className="pnav" disabled={curPage===totalPages} onClick={()=>setPage(p=>p+1)}>›</button>
@@ -172,7 +176,7 @@ function TransactionsTable({ transactions: txns, tags, accounts = [], onAdd, onE
                 <td className="th-chk">{!readOnly && <input type="checkbox" checked={selected.has(tx.id)} onChange={()=>toggleSel(tx.id)}/>}</td>
                 <td className="td-date">{tx.date}</td>
                 <td className="td-amt" style={{color:tx.amount<0?'var(--red)':'var(--green)'}}>{fmt(tx.amount, true, accounts.find(a => a.name === tx.account)?.currency || tx.currency || 'USD')}</td>
-                <td className="td-desc">{tx.description}</td>
+                <td className="td-desc">{tx.description}{tx.scheduled && <span className="scheduled-badge">Scheduled</span>}</td>
                 <td>
                   <div className="tx-tags">
                     {!(tx.tags?.length)

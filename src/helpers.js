@@ -78,7 +78,11 @@ export const addDaysISO = (iso, n) => {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 export const PERIODS = ['This Month','Last Month','Last 3 Months','This Year','Last Year','All Time'];
-export const PAGE_SIZE = 15;
+export const PAGE_SIZE_OPTIONS = [10, 25, 50];
+export const PAGE_SIZE = 25;
+/** Dashboard tag list hides tags with smaller totals than this (per currency). */
+export const TAG_MIN_AMOUNT = { INR: 2500 };
+export const tagMinAmount = currency => TAG_MIN_AMOUNT[currency] ?? 200;
 
 export const TX_TYPES = [
   {key:'expense',      label:'EXPENSE',      sign:'-', color:'#ef4444'},
